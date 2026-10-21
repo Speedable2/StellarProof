@@ -19,6 +19,7 @@ import networkRoutes from "./network.routes";
 import registryRoutes from "./v1/registry.routes";
 import oracleRoutes from "./oracle.routes";
 import spvSignatureRoutes from "./v1/spvSignature.routes";
+import workerRoutes from "./worker.routes";
 
 const router = Router();
 
@@ -50,5 +51,6 @@ router.use("/api/v1/network", networkRoutes);
 router.use("/api/v1/registry", registryRoutes);
 router.use("/api/v1/oracle", oracleRoutes);
 router.use("/api/v1/verification", spvSignatureRoutes);
+router.use("/api/v1/worker", workerRoutes);
 
 export default router;
