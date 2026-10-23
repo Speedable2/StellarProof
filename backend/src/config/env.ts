@@ -162,6 +162,12 @@ export const env = {
   VERIFICATION_WORKER_MAX_ATTEMPTS: optionalPositiveIntEnv("VERIFICATION_WORKER_MAX_ATTEMPTS", 3),
   VERIFICATION_WORKER_RETRY_BASE_MS: optionalPositiveIntEnv("VERIFICATION_WORKER_RETRY_BASE_MS", 1000),
   VERIFICATION_WORKER_LEASE_MS: optionalPositiveIntEnv("VERIFICATION_WORKER_LEASE_MS", 300000),
+  /** Requests one worker process works on at the same time. */
+  VERIFICATION_WORKER_CONCURRENCY: optionalPositiveIntEnv("VERIFICATION_WORKER_CONCURRENCY", 1),
+  /** How often each worker records its heartbeat. */
+  VERIFICATION_WORKER_HEARTBEAT_INTERVAL_MS: optionalPositiveIntEnv("VERIFICATION_WORKER_HEARTBEAT_INTERVAL_MS", 15000),
+  /** A worker whose last heartbeat is older than this is reported as not alive. */
+  WORKER_HEARTBEAT_STALE_MS: optionalPositiveIntEnv("WORKER_HEARTBEAT_STALE_MS", 60000),
   
   /** SPV verification configuration */
   SPV_FETCH_TIMEOUT_MS: optionalPositiveIntEnv("SPV_FETCH_TIMEOUT_MS", 15000),

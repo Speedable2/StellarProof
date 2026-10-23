@@ -47,12 +47,14 @@ jest.mock('../../utils/logger', () => ({
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { Keypair, StrKey, xdr } from '@stellar/stellar-sdk';
-// import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import { VerificationWorker } from '../../jobs/verificationWorker';
 import type { VerificationWorkerDeps } from '../../jobs/verificationWorker';
 import { verificationService } from '../verification.service';
 import { verificationRequestEventService } from '../verificationRequestEvent.service';
+import { MongoWorkerQueue } from '../workerQueue.service';
+import { DeadLetteredRequestModel } from '../../models/DeadLetteredRequest.model';
 import { attestationService } from '../attestation.service';
 import { VerificationJobModel } from '../../models/verificationJob.model';
 import { VerificationRequestEventModel } from '../../models/verificationRequestEvent.model';
@@ -96,10 +98,10 @@ function waitForCall(mock: jest.Mock, timeoutMs = 10_000): Promise<void> {
 }
 
 // ─── MongoDB lifecycle ───────────────────────────────────────────────────────
-let mongo: any; // MongoMemoryServer;
+let mongo: MongoMemoryServer;
 
 beforeAll(async () => {
-  // mongo = await MongoMemoryServer.create();
+  mongo = await MongoMemoryServer.create();
   await mongoose.connect(mongo.getUri());
   await Promise.all([
     VerificationJobModel.syncIndexes(),
@@ -116,6 +118,7 @@ afterEach(async () => {
   await Promise.all([
     VerificationJobModel.deleteMany({}),
     VerificationRequestEventModel.deleteMany({}),
+    DeadLetteredRequestModel.deleteMany({}),
   ]);
   jest.clearAllMocks();
 });
@@ -126,6 +129,7 @@ function buildWorker(overrides: {
   submitTransaction?: jest.Mock;
   getTransactionWithConfirmation?: jest.Mock;
   verify?: jest.Mock;
+  concurrency?: number;
 } = {}) {
   const oracle = {
     keypair: Keypair.random(),
@@ -159,6 +163,7 @@ function buildWorker(overrides: {
   };
 
   const deps: VerificationWorkerDeps = {
+    queue: new MongoWorkerQueue(),
     events: verificationRequestEventService,
     jobs: verificationService,
     attestations: attestationService,
@@ -171,6 +176,8 @@ function buildWorker(overrides: {
       maxAttempts: 3,
       retryBaseMs: 1_000,
       leaseMs: 360_000,
+      concurrency: overrides.concurrency ?? 1,
+      heartbeatIntervalMs: 15_000,
     },
     logger,
     workerId: `test-worker-${crypto.randomBytes(4).toString('hex')}`,
@@ -333,6 +340,39 @@ describe('attestation + mint flow — happy path', () => {
   });
 });
 
+describe('attestation + mint flow — multiple concurrent workers (#694)', () => {
+  it('lets two workers with parallel lanes drain the queue, minting each request exactly once', async () => {
+    const seeded = await Promise.all(Array.from({ length: 12 }, () => seedEvent()));
+    // Each request carries distinct content, as in production.
+    const verify = () =>
+      jest.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { verified: true, contentHash: hex32(), manifestHash: hex32() };
+      });
+    const mint = () =>
+      jest.fn().mockImplementation(async () => ({ hash: hex32(), xdr: 'AAAA', transaction: {} as never }));
+    const a = buildWorker({ concurrency: 3, verify: verify(), buildMintTransaction: mint() });
+    const b = buildWorker({ concurrency: 3, verify: verify(), buildMintTransaction: mint() });
+
+    const [processedA, processedB] = await Promise.all([a.worker.runCycle(), b.worker.runCycle()]);
+
+    expect(processedA + processedB).toBe(seeded.length);
+    expect(processedA).toBeGreaterThan(0);
+    expect(processedB).toBeGreaterThan(0);
+    expect(
+      a.soroban.buildMintTransaction.mock.calls.length + b.soroban.buildMintTransaction.mock.calls.length
+    ).toBe(seeded.length);
+
+    const events = await VerificationRequestEventModel.find({}).lean();
+    expect(events.every((e) => e.status === VerificationRequestEventStatus.COMPLETED)).toBe(true);
+    expect(events.every((e) => e.attempts === 1)).toBe(true);
+    const jobs = await VerificationJobModel.find({}).lean();
+    expect(jobs).toHaveLength(seeded.length);
+    expect(new Set(jobs.map((j) => j.requestId))).toEqual(new Set(seeded.map((e) => e.eventId)));
+    expect(jobs.every((j) => j.status === VerificationStatus.COMPLETED)).toBe(true);
+  });
+});
+
 describe('attestation + mint flow — failure path', () => {
   it('marks the job and event FAILED when the on-chain mint transaction fails', async () => {
     const event = await seedEvent();
@@ -369,6 +409,12 @@ describe('attestation + mint flow — failure path', () => {
     // No certificate produced
     expect(eventDoc!.certificateId).toBeUndefined();
     expect(eventDoc!.completedAt).toBeUndefined();
+
+    // A failure that can never succeed is dead-lettered with the linked job.
+    const deadLetter = await DeadLetteredRequestModel.findOne({ eventId: event.eventId }).lean();
+    expect(deadLetter).toMatchObject({ retryable: false, attempts: 1 });
+    expect(deadLetter!.reason).toContain('invoke_host_function_trapped');
+    expect(String(deadLetter!.verificationJobId)).toBe(String(job!._id));
   });
 
   it('marks the job FAILED and does not mint when SPV verification rejects', async () => {

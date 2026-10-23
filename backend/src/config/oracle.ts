@@ -22,6 +22,9 @@ export interface VerificationWorkerConfig {
   maxAttempts: number;
   retryBaseMs: number;
   leaseMs: number;
+  /** Requests processed concurrently by one worker process. */
+  concurrency: number;
+  heartbeatIntervalMs: number;
 }
 
 type OracleEnv = Pick<
@@ -36,6 +39,8 @@ type WorkerEnv = Pick<
   | "VERIFICATION_WORKER_MAX_ATTEMPTS"
   | "VERIFICATION_WORKER_RETRY_BASE_MS"
   | "VERIFICATION_WORKER_LEASE_MS"
+  | "VERIFICATION_WORKER_CONCURRENCY"
+  | "VERIFICATION_WORKER_HEARTBEAT_INTERVAL_MS"
   | "STELLAR_TX_CONFIRMATION_TIMEOUT_MS"
   | "SPV_FETCH_TIMEOUT_MS"
 >;
@@ -87,5 +92,7 @@ export function loadVerificationWorkerConfig(source: WorkerEnv = env): Verificat
     maxAttempts: source.VERIFICATION_WORKER_MAX_ATTEMPTS,
     retryBaseMs: source.VERIFICATION_WORKER_RETRY_BASE_MS,
     leaseMs: source.VERIFICATION_WORKER_LEASE_MS,
+    concurrency: source.VERIFICATION_WORKER_CONCURRENCY,
+    heartbeatIntervalMs: source.VERIFICATION_WORKER_HEARTBEAT_INTERVAL_MS,
   };
 }
