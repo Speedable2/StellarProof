@@ -1,0 +1,11 @@
+//Figma Dark Mode Design//
+
+Design high-fidelity Figma layouts for four StellarProof Dark Mode UI/UX issues:
+
+#920 — Toasts: Design reusable success and error toast components.
+#921 — Notifications: Design consistent transaction confirmation notification dialogs.
+#918 — Network Latency & Node Health (Pie Charts View): Design dashboard visualizations for Oracle network uptime and response speed.
+#919 — Global Modals: Design reusable warning modals for application-wide use.
+
+
+https://www.figma.com/design/2kP82C0Z8z0X3CncLQmfhB/Stellar-Project-Fig?node-id=3104-2&t=zzXMmpkwe30CmMGR-0

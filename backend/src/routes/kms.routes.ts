@@ -1,7 +1,13 @@
 import { Router } from 'express';
-import { rotateKey, getAllKeys, getActiveKey, revokeKey } from '../controllers/kms.controller';
+import { rotateKey, getAllKeys, getActiveKey, revokeKey, getKeySummary } from '../controllers/kms.controller';
 
 const router = Router();
+
+/**
+ * GET /api/v1/kms/keys/:userId/summary
+ * Get KMS key summary report for a user (status counts & asset counts per version)
+ */
+router.get('/keys/:userId/summary', getKeySummary);
 
 /**
  * POST /api/v1/kms/rotate/:userId

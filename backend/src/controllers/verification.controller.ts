@@ -108,6 +108,7 @@ export class VerificationController {
         status: VerificationStatus.PENDING,
         timeline: [{ stage: VerificationStatus.PENDING, at: new Date(), actor: "user" }],
       });
+      await verificationService.dispatchJobCreated(job.toObject<IVerificationJob>());
 
       res.status(StatusCodes.CREATED).json({
         success: true,

@@ -26,9 +26,11 @@ export enum VerificationStatus {
 }
 
 export enum VerificationWebhookEvent {
+  JOB_CREATED = "job.created",
   COMPLETED = "verification.completed",
   FAILED = "verification.failed",
   MINTED = "certificate.minted",
+  KMS_KEY_ROTATED = "kms.key_rotated",
 }
 
 export type VerificationTimelineActor = "worker" | "oracle" | "user";

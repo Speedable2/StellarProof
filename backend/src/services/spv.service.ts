@@ -364,6 +364,7 @@ import mongoose from 'mongoose';
 import SPVRecordModel, { ISPVRecord } from '../models/SPVRecord.model';
 import KMSKey from '../models/KMSKey.model';
 import Asset, { IAsset } from '../models/Asset.model';
+import Certificate from '../models/Certificate.model';
 import User from '../models/User.model';
 import { AppError } from '../errors/AppError';
 import { accessControlService } from './accessControl.service';

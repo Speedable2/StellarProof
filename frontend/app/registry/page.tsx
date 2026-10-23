@@ -29,6 +29,8 @@ import {
   type RegistryData,
 } from "../../services/registry";
 import { ProviderList } from "../../components/registry/ProviderList";
+import { oracleNodesService, type OracleNode } from "../../services/oracleNodes";
+import { ActiveNodesTable } from "../../components/registry/ActiveNodesTable";
 
 /* ------------------------------------------------------------------ */
 /*                         Constants                                   */
@@ -253,6 +255,10 @@ export default function RegistryPage() {
   const [oraclePage, setOraclePage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const [nodes, setNodes] = useState<OracleNode[]>([]);
+  const [nodesLoading, setNodesLoading] = useState(true);
+  const [nodesError, setNodesError] = useState<string | null>(null);
+
   const fetchData = useCallback(async (showRefreshSpinner = false) => {
     if (showRefreshSpinner) setIsRefreshing(true);
     else setLoading(true);
@@ -280,6 +286,22 @@ export default function RegistryPage() {
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    oracleNodesService
+      .listNodes()
+      .then((result) => {
+        if (!cancelled) setNodes(result);
+      })
+      .catch(() => {
+        if (!cancelled) setNodesError("Failed to load active nodes. Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setNodesLoading(false);
       });
     return () => { cancelled = true; };
   }, []);
@@ -389,6 +411,36 @@ export default function RegistryPage() {
             </p>
           )}
         </div>
+
+        {/* Active Oracle Nodes */}
+        <section aria-labelledby="active-nodes-heading" className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2
+              id="active-nodes-heading"
+              className="text-lg font-semibold text-gray-900 dark:text-white"
+            >
+              Active Oracle Nodes
+            </h2>
+            {!nodesLoading && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                {nodes.length} node{nodes.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          {nodesError ? (
+            <div className="flex items-start gap-3 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-4">
+              <AlertCircle
+                className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5"
+                aria-hidden
+              />
+              <p className="text-sm font-medium text-red-700 dark:text-red-300">
+                {nodesError}
+              </p>
+            </div>
+          ) : (
+            <ActiveNodesTable nodes={nodes} isLoading={nodesLoading} />
+          )}
+        </section>
 
         {/* Search */}
         <div className="relative mb-8 max-w-xl">

@@ -1,5 +1,28 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { kmsService } from '../services/kms.service';
+import { AppError } from '../errors/AppError';
+
+export const getKeySummary = async (
+  req: Request,
+  res: Response,
+  next?: NextFunction
+): Promise<void> => {
+  try {
+    const { userId } = req.params;
+    const summary = await kmsService.getKeySummary(userId);
+    res.status(200).json({ success: true, data: summary });
+  } catch (error) {
+    if (next) {
+      return next(error);
+    }
+    const statusCode = error instanceof AppError ? error.statusCode : 500;
+    res.status(statusCode).json({
+      success: false,
+      error: (error as Error).message,
+      ...(error instanceof AppError && error.code ? { code: error.code } : {}),
+    });
+  }
+};
 
 export const rotateKey = async (req: Request, res: Response): Promise<void> => {
   try {

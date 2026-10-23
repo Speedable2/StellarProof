@@ -1,0 +1,29 @@
+{
+  "name": "@stellarproof/backend-load-tests",
+  "version": "1.0.0",
+  "description": "Load and concurrency tests for StellarProof backend KMS rotation and worker pipeline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:load:kms": "k6 run scripts/kms-rotation.load.js",
+    "test:load:kms:dev": "k6 run --vus 5 --duration 30s scripts/kms-rotation.load.js",
+    "test:load:kms:light": "k6 run --vus 10 --duration 1m scripts/kms-rotation.load.js",
+    "test:load:kms:stress": "k6 run --vus 100 --duration 5m scripts/kms-rotation.load.js",
+    "test:load:worker": "k6 run scripts/worker-idempotency.load.js",
+    "test:load:worker:dev": "k6 run --vus 5 --duration 30s scripts/worker-idempotency.load.js",
+    "test:load:worker:light": "k6 run --vus 10 --duration 1m scripts/worker-idempotency.load.js",
+    "test:load:worker:stress": "k6 run --vus 100 --duration 5m scripts/worker-idempotency.load.js",
+    "test:load:all": "npm run test:load:kms && npm run test:load:worker",
+    "test:load:all:dev": "npm run test:load:kms:dev && npm run test:load:worker:dev",
+    "test:load:all:light": "npm run test:load:kms:light && npm run test:load:worker:light",
+    "test:load:all:stress": "npm run test:load:kms:stress && npm run test:load:worker:stress",
+    "test:load:sequential": "npm run test:load:kms && sleep 10 && npm run test:load:worker"
+  },
+  "dependencies": {
+    "k6": "^0.0.1"
+  },
+  "devDependencies": {},
+  "engines": {
+    "k6": ">=0.43.0"
+  }
+}

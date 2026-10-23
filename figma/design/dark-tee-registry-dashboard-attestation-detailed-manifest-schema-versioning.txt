@@ -1,0 +1,13 @@
+**Design Deliverables**
+
+TEE Registry Dashboard — Grid View (#909): Design a card-based dashboard for viewing trusted Oracle Workers and their health at a glance.
+
+TEE Registry Dashboard — List View (#908): Create a compact, vertically organized presentation for reviewing registry entries and comparing worker statuses.
+
+TEE Attestation Detailed Report (#907): Structure a detailed report that makes AWS Nitro Enclave cryptographic attestation evidence easier to inspect and understand.
+
+Manifest Schema Versioning — Table View (#906): Present schema versions and historical changes in a structured table for straightforward comparison and traceability.
+
+
+https://www.figma.com/design/2kP82C0Z8z0X3CncLQmfhB/Stellar-Project-Fig?node-id=3104-2&t=zzXMmpkwe30CmMGR-0
+

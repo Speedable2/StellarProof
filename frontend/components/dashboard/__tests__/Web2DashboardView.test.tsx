@@ -12,7 +12,7 @@ describe("Web2DashboardView", () => {
 
     expect(screen.getByText("testuser@stellarproof.com")).toBeInTheDocument();
     expect(screen.getByText(/Verify Authenticity/i)).toBeInTheDocument();
-    expect(screen.getByText(/My Products/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /My Products/i })).toBeInTheDocument();
   });
 
   it("defaults to 'My Products' section on initial load", async () => {

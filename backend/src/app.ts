@@ -15,6 +15,7 @@ import { env } from './config/env';
 import { corsMiddleware, apiV1RateLimiter, authRateLimiter } from './config/security';
 import rootRouter from './routes';
 import { globalErrorHandler } from './middlewares/errorHandler';
+import { meteringMiddleware } from './middlewares/metering.middleware';
 
 export function createApp(): Application {
   const app = express();
@@ -39,6 +40,11 @@ export function createApp(): Application {
   app.use('/api/v1/auth', authRateLimiter);
   // General limiter for all remaining /api/v1 routes.
   app.use('/api/v1', apiV1RateLimiter);
+
+  // ── API Key Usage Metering ─────────────────────────────────────────────────
+  // Record request metrics for API key authenticated requests.
+  // Placed after rate limiting so metering doesn't block request processing.
+  app.use('/api/v1', meteringMiddleware);
 
   // ── Application routes ────────────────────────────────────────────────────
   app.use(rootRouter);

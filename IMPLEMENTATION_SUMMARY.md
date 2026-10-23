@@ -1,400 +1,533 @@
-# TEE Code-Measurement Hash Management - Implementation Summary
+# Developer App Webhook Registration - Implementation Summary
 
-## Issue
-**#716 [Backend] [Feature] Implement TEE code-measurement hash management for attestation**
+**Issue:** #772 [Backend] [Feature] Implement developer app webhook registration via SDK flow  
+**Branch:** `feat/app-webhook-registration`  
+**Status:** ✅ Complete
 
-## Objective
-Implement a system to compute, persist, and retrieve the trusted code measurement hash (SHA-256 of worker + enclave binary) used in TEE attestations, ensuring consistency and auditability.
+---
 
-## Solution Overview
+## Overview
 
-### Architecture Pattern
-**Strict Layered Architecture**: Model → Service → Controller → Routes
+Successfully implemented a complete developer app webhook registration system following strict layered architecture (Controller → Service → Model pattern). Developers can now register webhook subscriptions tied to their apps in a single API call, with HMAC-SHA256 secret-based payload verification.
 
-```
-Request
-  ↓
-Routes (teeConfig.routes.ts) - Validation & Routing
-  ↓
-Controller (teeConfig.controller.ts) - Request/Response Handling
-  ↓
-Service (teeConfig.service.ts) - Business Logic
-  ↓
-Model (TEEConfig.model.ts) - Database Schema & Persistence
-  ↓
-MongoDB - Data Storage
-```
+---
 
 ## Files Created
 
-### 1. Model: `backend/src/models/TEEConfig.model.ts`
-**Purpose**: Define MongoDB schema for TEE configurations
+### 1. **Models** (`backend/src/models/App.model.ts`)
+- **IApp Interface**: Main app document interface with webhooks array
+- **IAppWebhook Interface**: Webhook subscription interface with HMAC secret
+- **AppSchema**: Mongoose schema with validation, timestamps, and compound unique index
+- **AppWebhookSchema**: Nested schema for webhook subscriptions
+- **Features:**
+  - Compound uniqueness: userId + app name
+  - Automatic timestamp management
+  - Webhook array for managing multiple subscriptions per app
 
-**Key Components**:
-- **ITEEConfig Interface**: TypeScript interface extending Mongoose Document
-- **Fields**:
-  - `name`: String, unique, required - Configuration identifier
-  - `codeMeasurementHash`: String, SHA-256 format (64 hex chars), unique, indexed
-  - `workerBinaryHash`: String, optional - SHA-256 of worker binary
-  - `enclaveBinaryHash`: String, optional - SHA-256 of enclave binary
-  - `version`: String - Configuration version
-  - `environment`: Enum ['testnet', 'mainnet', 'development'] - Deployment target
-  - `isActive`: Boolean - Active status flag
-  - `isDeprecated`: Boolean - Deprecation status
-  - `createdBy`: ObjectId reference to User
-  - `activatedAt`, `deprecatedAt`: Audit timestamps
-  - `createdAt`, `updatedAt`: Mongoose timestamps
+### 2. **Types** (`backend/src/types/app.types.ts`)
+- **WebhookEventType Enum**: Supported webhook event types
+  - `verification.completed`
+  - `verification.failed`
+  - `certificate.minted`
+- **DTOs** (Data Transfer Objects):
+  - `RegisterWebhookDTO` - Request payload for webhook registration
+  - `CreateAppDTO` - Request payload for app creation
+  - `WebhookRegistrationResponse` - Response with generated secret
+  - `CreateAppResponse` - App creation response
+  - `AppDetailsResponse` - Detailed app information with webhooks
+  - `WebhookSummary` - Webhook info without secrets
+- **API Response Wrapper**: Standard success/error response format
 
-**Validation**:
-- SHA-256 hash format validation via regex: `/^[a-f0-9]{64}$/i`
-- Pre-save hook ensures:
-  - Cannot be both active AND deprecated
-  - Auto-sets `activatedAt` when marked active
-  - Auto-sets `deprecatedAt` when marked deprecated
+### 3. **Service Layer** (`backend/src/services/app.service.ts`)
+- **createApp()** - Create new developer application
+  - Input validation (name required, unique per user)
+  - Returns app details with creation timestamp
+  - Prevents duplicate app names
+- **registerWebhook()** - Register webhook subscription for app
+  - URL validation (must be valid HTTP/HTTPS)
+  - Event validation (at least one required)
+  - Generates unique webhook ID with `wh_` prefix
+  - Generates cryptographically secure HMAC secret (32 bytes, hex-encoded)
+  - Returns secret only once (security best practice)
+  - Ownership verification ensures user can only manage their own apps
+- **getAppDetails()** - Retrieve app with webhooks
+  - Returns webhook summaries without secrets
+  - Ownership verification
+  - Includes all webhook metadata (URL, events, timestamps)
+- **listApps()** - List all apps for a user
+  - Sorted by creation date (newest first)
+  - Returns app summaries
 
-**Indexes**:
-- `codeMeasurementHash` (unique) - Fast hash lookups
-- `name` (unique) - Prevent duplicate names
-- `environment` - Environment filtering
-- Compound: `{ environment: 1, isActive: 1 }` - Active config by environment
-- Compound: `{ environment: 1, isDeprecated: 1 }` - Deprecated config queries
+### 4. **Controller Layer** (`backend/src/controllers/developer.controller.ts`)
+- **generateApiKey()** - Existing endpoint (unchanged)
+- **createDeveloperApp()** - Create app endpoint
+  - Extracts user ID from JWT token
+  - Validates authorization
+  - Delegates to service layer
+  - Returns 201 Created with app data
+- **listDeveloperApps()** - List apps endpoint
+  - Role-based access control (developer/admin)
+  - Returns array of apps
+- **getAppDetailsController()** - Get app details endpoint
+  - Parameter validation
+  - Ownership verification through service layer
+  - Returns detailed app information with webhooks
+- **registerAppWebhook()** - Register webhook endpoint (**PRIMARY FEATURE**)
+  - Parameter and body validation
+  - Ownership verification
+  - Returns webhook with generated secret
+  - Returns 201 Created status
+  - Includes security note in response message
 
-### 2. Service: `backend/src/services/teeConfig.service.ts`
-**Purpose**: Encapsulate all business logic for TEE configuration management
+### 5. **Routes** (`backend/src/routes/developer.routes.ts`)
+- **POST /api/v1/developer/apps** - Create app
+  - Middleware: `protect`, `restrictTo('developer', 'admin')`, `zodBody(createAppSchema)`
+- **GET /api/v1/developer/apps** - List apps
+  - Middleware: `protect`, `restrictTo('developer', 'admin')`
+- **GET /api/v1/developer/apps/:appId** - Get app details
+  - Middleware: `protect`, `restrictTo('developer', 'admin')`, `zodParams(appIdSchema)`
+- **POST /api/v1/developer/apps/:appId/webhooks** - Register webhook
+  - Middleware: `protect`, `restrictTo('developer', 'admin')`, `zodParams(appIdSchema)`, `zodBody(registerWebhookSchema)`
 
-**TEEConfigService Class Methods**:
+### 6. **Validation Middleware** (`backend/src/middlewares/app.validation.ts`)
+- **createAppSchema** - Zod schema for app creation
+  - `name`: String, 1-255 chars, trimmed, required
+  - `description`: String, 0-1000 chars, trimmed, optional
+- **registerWebhookSchema** - Zod schema for webhook registration
+  - `url`: Valid HTTP/HTTPS URL, required
+  - `events`: Non-empty array of strings, required
+- **appIdSchema** - Zod schema for app ID parameter validation
+  - `appId`: Non-empty string, required
 
-#### Creation & Hashing
-- `computeCodeMeasurementHash(workerBinary: Buffer, enclaveBinary: Buffer): string`
-  - Concatenates worker + enclave binaries
-  - Returns SHA-256 hash as hex string
-  
-- `computeBinaryHash(binary: Buffer): string`
-  - Returns SHA-256 hash of single binary
+### 7. **Parameter Validation Middleware** (`backend/src/middlewares/zodValidateParams.ts`)
+- Validates `req.params` against Zod schemas
+- Follows same pattern as existing `zodValidate.ts` for body validation
+- Returns 400 Bad Request with detailed validation errors
 
-- `createTEEConfig(input: CreateTEEConfigInput): Promise<TEEConfigResponse>`
-  - Validates all input fields
-  - Checks for duplicate hashes and names
-  - Computes hashes if binaries provided
-  - Creates and persists MongoDB document
-  - Returns formatted response
+### 8. **Test Suite** (`backend/src/__tests__/app.webhook.test.ts`)
+- **App Creation Tests**
+  - Create app with valid data
+  - Validate required fields
+  - Prevent duplicate app names
+- **Webhook Registration Tests**
+  - Register webhook with valid data
+  - Validate webhook URL format
+  - Enforce minimum one event requirement
+- **App Details Tests**
+  - Retrieve app with webhook list
+  - Verify secrets excluded from response
+  - Enforce authorization checks
+- **App Listing Tests**
+  - List multiple apps for a user
+  - Verify correct user filtering
 
-#### Retrieval
-- `getActiveTEEConfig(environment): Promise<TEEConfigResponse | null>`
-  - Retrieves active, non-deprecated config for environment
-  - Sorted by most recent update
-  - **Used by attestation service for database-backed hashes**
+### 9. **Documentation**
+- **WEBHOOK_REGISTRATION_API.md** - Complete API documentation with:
+  - Endpoint descriptions and examples
+  - Request/response formats
+  - Error codes and messages
+  - Webhook payload verification example
+  - Implementation details
+  - Testing instructions (Postman/cURL)
+- **IMPLEMENTATION_SUMMARY.md** - This file
 
-- `getTEEConfigById(id: string): Promise<TEEConfigResponse | null>`
-  - Direct ID lookup
+---
 
-- `getTEEConfigByHash(codeMeasurementHash): Promise<TEEConfigResponse | null>`
-  - Lookup by code measurement hash
-  - Used to verify configuration authenticity
+## Architectural Pattern
 
-- `listTEEConfigs(filters?): Promise<TEEConfigResponse[]>`
-  - Optional filtering by environment, isActive, isDeprecated
-  - Returns sorted list
+### Layered Architecture (Controller → Service → Model)
 
-#### Updates & Lifecycle
-- `updateTEEConfig(id, input): Promise<TEEConfigResponse>`
-  - Updates: description, version, isActive, isDeprecated
-
-- `deprecateTEEConfig(id): Promise<TEEConfigResponse>`
-  - Marks config as deprecated and inactive
-  - Sets deprecatedAt timestamp
-
-- `deleteTEEConfig(id): Promise<void>`
-  - Only deletes if not active
-  - Prevents accidental deletion of in-use configs
-
-#### Response Formatting
-- `formatTEEConfigResponse(config): TEEConfigResponse`
-  - Converts Mongoose document to API response DTO
-  - Ensures consistent response format
-
-**Error Handling**:
-- Throws `AppError` with appropriate HTTP status codes
-- Validation errors: 400 Bad Request
-- Duplicates: 409 Conflict
-- Not found: 404 Not Found
-- Constraint violations: 400 Bad Request
-
-### 3. Controller: `backend/src/controllers/teeConfig.controller.ts`
-**Purpose**: Handle HTTP requests and responses
-
-**Exported Functions** (7 endpoints):
-1. `createTEEConfig()` - POST /api/v1/tee-config/create
-2. `getActiveTEEConfig()` - GET /api/v1/tee-config/active/:environment
-3. `getTEEConfigById()` - GET /api/v1/tee-config/:id
-4. `getTEEConfigByHash()` - GET /api/v1/tee-config/hash/:codeMeasurementHash
-5. `listTEEConfigs()` - GET /api/v1/tee-config
-6. `updateTEEConfig()` - PATCH /api/v1/tee-config/:id
-7. `deprecateTEEConfig()` - POST /api/v1/tee-config/:id/deprecate
-8. `deleteTEEConfig()` - DELETE /api/v1/tee-config/:id
-9. `computeCodeMeasurementHash()` - POST /api/v1/tee-config/compute-hash
-
-**Pattern**:
-- Extract and validate input from `req.body`, `req.params`, `req.query`
-- Call service method
-- Return standardized JSON responses
-- Pass errors to `next()` for global error handler
-
-**Response Format**:
-```json
-{
-  "success": true/false,
-  "message": "Human readable message",
-  "data": { /* response object */ }
-}
+```
+HTTP Request
+    ↓
+[Middleware]
+  - Authentication (protect)
+  - Authorization (restrictTo)
+  - Validation (zodBody, zodParams)
+    ↓
+[Controller Layer]
+  - Extract request data
+  - Call service methods
+  - Format response
+  - Return via res.json()
+    ↓
+[Service Layer]
+  - Business logic
+  - Additional validation
+  - Authorization checks
+  - Call model operations
+  - Return domain objects
+    ↓
+[Model Layer]
+  - Mongoose schema
+  - Database operations
+  - Data persistence
+    ↓
+[Database]
+  - MongoDB
 ```
 
-### 4. Routes: `backend/src/routes/teeConfig.routes.ts`
-**Purpose**: Define API endpoints and validation
+### Key Design Principles
 
-**Route Configuration**:
-- Base path: `/api/v1/tee-config`
-- Validation schemas using Zod library
-- Public routes (no auth required):
-  - `POST /create` - Create config
-  - `GET /active/:environment` - Get active by environment
-  - `GET /hash/:codeMeasurementHash` - Get by hash
-  - `GET /` - List all
-  - `GET /:id` - Get by ID
-  - `POST /compute-hash` - Hash computation utility
+1. **Separation of Concerns**: Each layer has single responsibility
+2. **Error Handling**: AppError with HTTP status codes and error codes
+3. **Security**: User ownership verification, input validation, HMAC secrets
+4. **Type Safety**: TypeScript interfaces and Zod schemas
+5. **Validation**: Multi-layer validation (schema, business logic, authorization)
+6. **Auditability**: Timestamps on all entities
 
-- Protected routes (JWT required):
-  - `PATCH /:id` - Update config
-  - `POST /:id/deprecate` - Deprecate config
-  - `DELETE /:id` - Delete config
+---
 
-**Validation Schemas**:
-- `createTEEConfigSchema` - Validates all create fields
-- `updateTEEConfigSchema` - Validates update fields
-- `computeHashSchema` - Validates binary base64 inputs
+## Security Features
 
-### 5. Integration: `backend/src/routes/index.ts`
-**Changes**:
-- Added import: `import teeConfigRoutes from "./teeConfig.routes";`
-- Added route mount: `router.use("/api/v1/tee-config", teeConfigRoutes);`
+✅ **HMAC Secret Generation**
+- Uses `crypto.randomBytes(32)` for 256-bit entropy
+- Hex-encoded for safe transport/storage
+- Returned only once at registration
+- Used to verify webhook payloads with HMAC-SHA256
 
-### 6. Attestation Service Update: `backend/src/services/attestation.service.ts`
-**Purpose**: Integrate database-backed hash retrieval
+✅ **Authentication & Authorization**
+- JWT bearer token required for all endpoints
+- Role-based access control (developer/admin)
+- User ownership verification on all resources
 
-**New Methods**:
-- `createAttestationWithTEEConfig(input, keypair, environment)`
-  - **Database-backed**: Retrieves active TEE config from database
-  - Looks up by environment
-  - Uses persisted `codeMeasurementHash`
-  - Creates attestation with retrieved hash
-  - **Primary method for production use**
+✅ **Input Validation**
+- Zod schemas for request body and parameters
+- URL validation for webhook endpoints
+- Event array validation (non-empty)
+- App name validation (required, non-empty)
 
-- `createAttestationWithHash(input, keypair, codeMeasurementHash)`
-  - Creates attestation with explicit hash
-  - Supports both database-backed and direct hash usage
+✅ **Error Handling**
+- No sensitive data leaked in error messages
+- Standard error codes for client handling
+- HTTP status codes follow REST conventions
 
-- `createAttestation()` (legacy)
-  - Maintained for backward compatibility
-  - Delegates to `createAttestationWithHash()`
+✅ **Data Protection**
+- Webhook secrets never returned in GET responses
+- Only returned once at registration
+- Support for timing-safe comparison in verification
 
-**Impact**:
-- Attestations now use database-persisted hashes
-- Consistent and auditable hash management
-- Supports environment-specific configurations
-
-## Key Features
-
-### 1. Persistence
-- All TEE configurations persisted in MongoDB
-- No inline mock objects or hardcoded values
-- Unique hash constraint prevents duplicates
-- Compound indexes for efficient queries
-
-### 2. Data Validation
-- SHA-256 format validation (64 hex characters)
-- Environment enum validation
-- Duplicate detection for hashes and names
-- Business rule validation (cannot be active + deprecated)
-
-### 3. Audit Trail
-- `createdBy` - Tracks creator
-- `createdAt`, `updatedAt` - Timestamps
-- `activatedAt` - When config was activated
-- `deprecatedAt` - When config was deprecated
-- Status fields: `isActive`, `isDeprecated`
-
-### 4. Environment Management
-- Separate configurations per environment (testnet, mainnet, development)
-- Active configuration per environment
-- Query support for environment filtering
-- Attestation service retrieves environment-specific hash
-
-### 5. Lifecycle Management
-- Create configurations
-- Mark as active/inactive
-- Deprecate without deleting
-- Delete only inactive configs
-- Update metadata
-
-### 6. Error Handling
-- Comprehensive error messages
-- Appropriate HTTP status codes
-- Custom error codes for programmatic handling
-- Global error handler integration
-
-## TypeScript & Code Quality
-
-### Strong Typing
-- Full TypeScript interfaces for all entities
-- No `any` types
-- Strict null checks
-- Type-safe service methods
-
-### Production-Ready Patterns
-- Service layer separation
-- Middleware validation
-- Error handling pipeline
-- Consistent response format
-
-### Code Organization
-- Clear separation of concerns
-- Single responsibility per file
-- Reusable validation schemas
-- Documented functions and exports
+---
 
 ## Database Schema
 
-### MongoDB Collection: `teeconfigs`
+### App Collection
 
-```javascript
+```
 {
-  _id: ObjectId,
-  name: String (unique, indexed),
-  description: String,
-  codeMeasurementHash: String (unique, indexed, regex validated),
-  workerBinaryHash: String (regex validated),
-  enclaveBinaryHash: String (regex validated),
-  version: String,
-  environment: String (enum: testnet|mainnet|development, indexed),
-  isActive: Boolean (indexed),
-  isDeprecated: Boolean (indexed),
-  createdBy: ObjectId (reference to User),
-  activatedAt: Date,
-  deprecatedAt: Date,
-  createdAt: Date,
+  _id: ObjectId
+  userId: ObjectId (ref: User, indexed)
+  name: String (required, maxLength: 255)
+  description: String (optional, maxLength: 1000)
+  webhooks: [
+    {
+      id: String (unique, prefix: "wh_")
+      url: String (required, must be HTTP/HTTPS)
+      events: [String] (required, non-empty)
+      secret: String (required, hex-encoded, 64 chars)
+      isActive: Boolean (default: true)
+      createdAt: Date
+      updatedAt: Date
+    }
+  ]
+  isActive: Boolean (default: true)
+  createdAt: Date
   updatedAt: Date
+  
+  // Indexes
+  unique: { userId, name }
+  index: { userId }
 }
 ```
 
-**Indexes**:
-1. `name` (unique)
-2. `codeMeasurementHash` (unique)
-3. `environment`
-4. `isActive`
-5. `isDeprecated`
-6. Compound: `{ environment: 1, isActive: 1 }`
-7. Compound: `{ environment: 1, isDeprecated: 1 }`
+---
 
-## API Endpoints Summary
+## API Endpoints
 
-| Method | Endpoint | Auth | Purpose |
-|--------|----------|------|---------|
-| POST | `/api/v1/tee-config/create` | No | Create TEE config |
-| GET | `/api/v1/tee-config/active/:env` | No | Get active config by environment |
-| GET | `/api/v1/tee-config/:id` | No | Get config by ID |
-| GET | `/api/v1/tee-config/hash/:hash` | No | Get config by code measurement hash |
-| GET | `/api/v1/tee-config` | No | List all configs (with optional filters) |
-| POST | `/api/v1/tee-config/compute-hash` | No | Compute hash utility |
-| PATCH | `/api/v1/tee-config/:id` | Yes | Update config |
-| POST | `/api/v1/tee-config/:id/deprecate` | Yes | Deprecate config |
-| DELETE | `/api/v1/tee-config/:id` | Yes | Delete config |
+### POST /api/v1/developer/apps
+Create a new developer application.
 
-## Compliance
-
-### Acceptance Criteria ✓
-- [x] **Strict Layered Architecture**: Controller → Service → Model pattern
-- [x] **Data Source**: All data from MongoDB (no mock objects)
-- [x] **Environment**: Uses .env configuration
-- [x] **API Versioning**: All endpoints at `/api/v1/...`
-- [x] **Production Ready**: Error handling, strong typing, validation
-- [x] **Proof of Work**: Test guide provided (see TEE_CONFIG_TEST_GUIDE.md)
-
-### CONTRIBUTING.md Compliance
-- [x] Proper folder structure (models, services, controllers, routes)
-- [x] Controller → Service → Model separation
-- [x] TypeScript with strict mode
-- [x] No inline mock objects or hardcoded values
-- [x] Standard HTTP status codes
-- [x] Robust error handling
-- [x] Environment variables for configuration
-- [x] Comprehensive documentation
-
-## Testing & Verification
-
-See `TEE_CONFIG_TEST_GUIDE.md` for:
-- Detailed test scenarios
-- Postman/curl examples
-- Database verification steps
-- Error handling verification
-- Screenshots of successful responses
-
-## PR Requirements
-
-**Title**: `[Backend] Implement TEE code-measurement hash management for attestation`
-
-**Description**:
+**Request:**
+```json
+{
+  "name": "My SDK Integration",
+  "description": "Optional description"
+}
 ```
-Closes #716
 
-## Summary
-Implemented TEE code-measurement hash management system for trusted attestations.
-
-## Changes
-- Added TEEConfig MongoDB model for persisting trusted hashes
-- Created TEEConfigService for CRUD operations and hash computation
-- Implemented 9 API endpoints for TEE config management
-- Updated AttestationService to retrieve persisted hashes from database
-- Added comprehensive validation and error handling
-- Integrated with environment-specific configurations
-
-## Database
-- New collection: `teeconfigs`
-- Unique indexes on hash and name
-- Compound indexes for environment-based queries
-
-## API
-- Base path: `/api/v1/tee-config`
-- 6 public endpoints + 3 protected endpoints
-- Full CRUD support with deprecation lifecycle
-
-## Testing
-Follow scenarios in TEE_CONFIG_TEST_GUIDE.md
-[Include Postman screenshots of successful operations]
-[Include MongoDB collection screenshot]
-
-## Architecture
-- Strict layered: Routes → Controller → Service → Model
-- No hardcoded values or mock objects
-- Database-backed hash retrieval for attestations
-- Production-ready error handling and validation
+**Response (201):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f...",
+    "userId": "507f...",
+    "name": "My SDK Integration",
+    "description": "Optional description",
+    "isActive": true,
+    "createdAt": "2024-10-21T..."
+  },
+  "message": "App created successfully."
+}
 ```
+
+### GET /api/v1/developer/apps
+List all apps for authenticated user.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "507f...",
+      "name": "My SDK Integration",
+      "isActive": true,
+      "createdAt": "2024-10-21T..."
+    }
+  ],
+  "message": "Apps retrieved successfully."
+}
+```
+
+### GET /api/v1/developer/apps/:appId
+Get detailed app information with webhooks.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f...",
+    "name": "My SDK Integration",
+    "webhooks": [
+      {
+        "id": "wh_...",
+        "url": "https://example.com/webhooks",
+        "events": ["verification.completed"],
+        "isActive": true,
+        "createdAt": "2024-10-21T..."
+      }
+    ]
+  },
+  "message": "App details retrieved successfully."
+}
+```
+
+### POST /api/v1/developer/apps/:appId/webhooks ⭐ PRIMARY ENDPOINT
+Register a webhook subscription for an app.
+
+**Request:**
+```json
+{
+  "url": "https://example.com/webhooks/stellar",
+  "events": ["verification.completed", "verification.failed"]
+}
+```
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "wh_abc123...",
+    "url": "https://example.com/webhooks/stellar",
+    "events": ["verification.completed", "verification.failed"],
+    "secret": "wh_sec_abcdef...",
+    "createdAt": "2024-10-21T..."
+  },
+  "message": "Webhook registered successfully. Store the secret securely."
+}
+```
+
+---
+
+## Error Handling
+
+### Standard Error Codes
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `VALIDATION_ERROR` | 400 | Request validation failed |
+| `INVALID_APP_NAME` | 400 | App name validation failed |
+| `INVALID_WEBHOOK_URL` | 400 | Webhook URL validation failed |
+| `INVALID_EVENTS` | 400 | Events array validation failed |
+| `UNAUTHORIZED` | 401 | Auth token missing/invalid |
+| `APP_FORBIDDEN` | 403 | User lacks permission |
+| `APP_NOT_FOUND` | 404 | App doesn't exist |
+| `APP_NAME_EXISTS` | 409 | App name already taken |
+| `APP_INACTIVE` | 409 | App is inactive |
+
+### Example Error Response
+
+```json
+{
+  "success": false,
+  "error": "Webhook URL must be a valid HTTP/HTTPS URL",
+  "code": "INVALID_WEBHOOK_URL"
+}
+```
+
+---
+
+## Production Readiness Checklist
+
+✅ **Code Quality**
+- TypeScript for type safety
+- Strong typing on all functions
+- No `any` types except in error handling
+- Consistent error handling with AppError
+
+✅ **Security**
+- HMAC-SHA256 secrets (32 bytes entropy)
+- Role-based access control
+- User ownership verification
+- Input validation at multiple layers
+- No secrets in responses
+
+✅ **Performance**
+- Indexed queries on userId
+- Compound unique index for app names
+- Minimal database queries per request
+
+✅ **Testability**
+- Dependency injection via imports
+- Service layer testable independently
+- Integration tests provided
+
+✅ **Maintainability**
+- Clear separation of concerns
+- Comprehensive documentation
+- Consistent code style
+- Reusable validation schemas
+
+✅ **API Versioning**
+- All endpoints under `/api/v1/` prefix
+- Ready for future v2 changes
+
+✅ **Database**
+- Mongoose schema with validation
+- Proper indexing strategy
+- Timestamp management
+
+---
+
+## Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Models | ✅ Complete | App.model.ts with IApp & IAppWebhook |
+| Types | ✅ Complete | app.types.ts with DTOs and enums |
+| Service | ✅ Complete | app.service.ts with full business logic |
+| Controller | ✅ Complete | developer.controller.ts with 4 endpoints |
+| Routes | ✅ Complete | developer.routes.ts with middleware |
+| Validation | ✅ Complete | app.validation.ts & zodValidateParams.ts |
+| Error Handling | ✅ Complete | AppError with proper codes |
+| Documentation | ✅ Complete | API docs & implementation summary |
+| Tests | ✅ Complete | app.webhook.test.ts with coverage |
+
+---
+
+## How to Use
+
+### 1. Create an App
+```bash
+curl -X POST http://localhost:4000/api/v1/developer/apps \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My Integration"}'
+```
+
+### 2. Register a Webhook
+```bash
+curl -X POST http://localhost:4000/api/v1/developer/apps/<APP_ID>/webhooks \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://api.example.com/webhooks",
+    "events": ["verification.completed"]
+  }'
+```
+
+### 3. Handle Webhook Events
+Your endpoint will receive JSON payloads. Verify the signature using the secret:
+
+```typescript
+import crypto from 'crypto';
+
+function verifyWebhook(payload: string, secret: string, signature: string) {
+  const computed = crypto.createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(signature));
+}
+```
+
+---
+
+## Deployment Notes
+
+1. **Environment Variables**: No new variables required (uses existing JWT_SECRET)
+2. **Database Migrations**: Run MongoDB automatically (Mongoose auto-creates indexes)
+3. **Dependencies**: No new external packages required
+4. **Backward Compatibility**: No breaking changes to existing endpoints
+5. **Testing**: Run `npm test` to execute test suite
+
+---
 
 ## Future Enhancements
 
-1. **Binary Upload**: Support uploading actual worker/enclave binaries
-2. **Hash Signing**: Sign code measurement hashes with admin key
-3. **Versioning**: Track multiple versions of TEE binaries
-4. **Attestation Validation**: Service to validate incoming attestations against stored configs
-5. **Audit Logs**: Detailed logging of config changes
-6. **Rate Limiting**: Per-config rate limits for sensitive operations
+Potential improvements for future versions:
+- Webhook delivery tracking and retry logic
+- Webhook event filtering per subscription
+- Webhook signature rotation
+- Webhook endpoint health checks
+- Event delivery logs visible to developers
+- Webhook testing/dry-run capability
+- Batch webhook operations
 
-## Conclusion
+---
 
-This implementation provides:
-- ✅ Secure persistence of TEE code measurement hashes
-- ✅ Production-ready API with validation and error handling
-- ✅ Environment-aware configuration management
-- ✅ Audit trail for compliance and debugging
-- ✅ Database-backed attestation service
-- ✅ Full TypeScript type safety
-- ✅ Comprehensive documentation and testing guide
+## Issue Resolution
+
+**Issue #772** - ✅ Resolved
+
+**Acceptance Criteria Met:**
+- ✅ Strict Layered Architecture: Controller → Service → Model pattern implemented
+- ✅ Data Source: All data retrieved from MongoDB via Mongoose models
+- ✅ No Hardcoded Values: All integration uses real database operations
+- ✅ Environment Variables: Uses existing .env configuration
+- ✅ API Versioning: All endpoints under `/api/v1/developer/...`
+- ✅ Production Ready: Error handling, strong typing, security features
+- ✅ PR Requirements: Ready for GitHub PR with this summary
+- ✅ Documentation: Complete API documentation and implementation guide
+
+---
+
+## Branch Information
+
+**Branch Name:** `feat/app-webhook-registration`  
+**Created:** 2024-10-21  
+**Base Branch:** `main`
+
+**Commit Message Template:**
+```
+feat: implement developer app webhook registration via SDK flow
+
+- Add App and AppWebhook Mongoose models with full validation
+- Implement app service with webhook registration business logic
+- Add developer app endpoints (POST /apps, GET /apps, POST /apps/:appId/webhooks)
+- Add comprehensive Zod validation schemas
+- Implement HMAC-SHA256 secret generation for webhook verification
+- Add parameter validation middleware (zodValidateParams)
+- Include unit tests for app and webhook operations
+- Add production-ready error handling and authorization checks
+
+Closes #772
+```
+
+---
+
+**Implementation completed by:** Kiro AI  
+**Date:** October 21, 2024  
+**Status:** Ready for Pull Request and Code Review

@@ -181,6 +181,15 @@ export const env = {
   /** Allowed CORS origin for the frontend. */
   CORS_ORIGIN: optionalEnv("CORS_ORIGIN", "http://localhost:3000"),
 
+  /** Public frontend origin used in certificate share links and export QR codes. */
+  PUBLIC_APP_URL: optionalEnv("PUBLIC_APP_URL", "http://localhost:3000"),
+
+  /** Lifetime (seconds) of signed certificate share tokens. Defaults to 7 days. */
+  CERTIFICATE_SHARE_TOKEN_TTL_SECONDS: optionalPositiveIntEnv(
+    "CERTIFICATE_SHARE_TOKEN_TTL_SECONDS",
+    7 * 24 * 60 * 60
+  ),
+
   /** Morgan log format: 'dev' | 'combined' | 'tiny' etc. */
   LOG_LEVEL: optionalEnv("LOG_LEVEL", "dev"),
 
@@ -259,4 +268,12 @@ export const env = {
 
   /** Cron expression (UTC) for the scheduled KMS expiry and rotation sweep */
   KMS_ROTATION_CRON_SCHEDULE: optionalEnv("KMS_ROTATION_CRON_SCHEDULE", "0 * * * *"),
-} as const;
+
+  /** API key usage data retention period in days (default: 90 days) */
+  API_USAGE_RETENTION_DAYS: optionalPositiveIntEnv("API_USAGE_RETENTION_DAYS", 90),
+
+  /** Maximum date range for a single usage query in days (default: 90 days) */
+  API_USAGE_MAX_QUERY_WINDOW_DAYS: optionalPositiveIntEnv("API_USAGE_MAX_QUERY_WINDOW_DAYS", 90),
+
+  /** Default query range when no explicit dates provided (default: 7 days) */
+  API_USAGE_DEFAULT_RANGE_DAYS: optionalPositiveIntEnv("API_USAGE_DEFAULT_RANGE_DAYS", 7),
