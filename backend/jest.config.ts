@@ -8,7 +8,6 @@ const config: Config = {
   moduleFileExtensions: ['ts', 'js', 'json'],
   testTimeout: 60000,
   maxWorkers: 1,
-  setupFilesAfterEnv: ['<rootDir>/src/test/setup/jest.setup.afterEnv.ts'],
   collectCoverageFrom: ['src/**/*.ts'],
   coveragePathIgnorePatterns: [
     '/src/test/',

@@ -1,0 +1,238 @@
+# =============================================================================
+# AWS Nitro Enclave - Environment Configuration
+# =============================================================================
+# Copy this file to .env and fill in the required values.
+# These environment variables configure the verification worker running
+# inside the AWS Nitro Enclave.
+#
+# SECURITY NOTE:
+# - Never commit .env files with real credentials to version control
+# - Use AWS Secrets Manager for production credentials
+# - Rotate credentials regularly
+# - Restrict access to .env files to authorized personnel only
+# =============================================================================
+
+# =============================================================================
+# NODE ENVIRONMENT
+# =============================================================================
+# Set to 'production' for the Nitro Enclave deployment
+NODE_ENV=production
+LOG_LEVEL=info
+
+# =============================================================================
+# ENCLAVE CONFIGURATION
+# =============================================================================
+# Nitro Enclave specific settings
+AWS_ENCLAVE=true
+NITRO_ENCLAVE_ROLE=verification-worker
+ENCLAVE_MEMORY_MB=512
+ENCLAVE_CPU_COUNT=2
+
+# Attestation Configuration
+ATTESTATION_ENABLED=true
+ATTESTATION_DIR=.attestation
+ATTESTATION_DOC_PATH=.attestation/attestation-doc.bin
+ATTESTATION_KEY_PATH=.attestation/attestation-key.pem
+ATTESTATION_BOOTSTRAP_TIMEOUT_MS=30000
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+# MongoDB Atlas connection string for production
+# Request credentials from the project maintainer via the Git issue
+# Format: mongodb+srv://username:password@cluster.mongodb.net/stellarproof?retryWrites=true&w=majority
+
+# IMPORTANT: For production Nitro Enclave deployment, use AWS Secrets Manager
+# to store MONGODB_URI instead of this .env file
+
+MONGODB_URI=mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/stellarproof?retryWrites=true&w=majority
+MONGODB_CONNECTION_POOL_SIZE=10
+MONGODB_CONNECTION_TIMEOUT_MS=10000
+MONGODB_IDLE_TIMEOUT_MS=30000
+MONGODB_TRANSACTION_TIMEOUT_MS=60000
+
+# =============================================================================
+# STELLAR / SOROBAN CONFIGURATION
+# =============================================================================
+# Stellar Network Configuration
+STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+STELLAR_RPC_URL=https://soroban-testnet.stellar.org
+STELLAR_RPC_URL_2=https://rpc-futurenet.stellar.org
+STELLAR_RPC_URL_3=
+
+# RPC Connection Management
+STELLAR_RPC_TIMEOUT_MS=10000
+STELLAR_RPC_FAILURE_THRESHOLD=3
+STELLAR_RPC_COOLDOWN_MS=30000
+STELLAR_TX_CONFIRMATION_TIMEOUT_MS=120000
+
+# Base Fee (stroops - 1 stroop = 0.0000001 XLM)
+BASE_FEE=100
+
+# =============================================================================
+# SOROBAN SMART CONTRACTS
+# =============================================================================
+# Contract IDs must be valid Stellar C-addresses (starts with 'C')
+# Obtain these from contract deployment
+
+ORACLE_CONTRACT_ID=CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB5L2E
+PROVENANCE_CONTRACT_ID=CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB5L2E
+REGISTRY_CONTRACT_ID=CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB5L2E
+
+# =============================================================================
+# ORACLE CONFIGURATION
+# =============================================================================
+# Oracle Secret Key (Ed25519 secret seed, starts with 'S')
+# CRITICAL: Store this securely in AWS Secrets Manager for production
+# This key is used to sign attestation documents
+
+ORACLE_SECRET_KEY=SBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# Optional: Callback authentication key for webhook verification
+# Shared secret for POST /api/v1/verification/jobs/oracle/callback
+ORACLE_CALLBACK_KEY=your_oracle_callback_key_here
+
+# Worker Identification
+WORKER_ID=verification-worker-1
+WORKER_CONCURRENCY=4
+
+# =============================================================================
+# SECURITY & AUTHENTICATION
+# =============================================================================
+# JWT Configuration
+JWT_SECRET=your_jwt_secret_here_change_in_production
+JWT_EXPIRES_IN=7d
+
+# Master Key for KMS Encryption
+# Used to encrypt/decrypt symmetric keys stored in the database
+# Generate with: openssl rand -hex 32
+# CRITICAL: Store in AWS Secrets Manager for production
+
+MASTER_KEY=your_master_key_here_generate_with_openssl_rand_hex_32
+
+# API Key Authentication (for internal service-to-service communication)
+API_KEY=your_api_key_here
+
+# =============================================================================
+# STORAGE PROVIDER CONFIGURATION
+# =============================================================================
+
+# IPFS Configuration
+IPFS_API_URL=http://localhost:5001
+IPFS_API_KEY=
+IPFS_GATEWAY_URL=https://dweb.link
+IPFS_UPLOAD_TIMEOUT_MS=30000
+IPFS_UPLOAD_MAX_RETRIES=2
+IPFS_UPLOAD_BACKOFF_MS=500
+
+# Pinata IPFS Configuration (Alternative to local IPFS)
+PINATA_JWT=your_pinata_jwt_here
+PINATA_GATEWAY_URL=https://gateway.pinata.cloud/ipfs
+
+# Cloudinary Configuration (Image hosting and optimization)
+# Sign up at https://cloudinary.com/ and get credentials from dashboard
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+
+# =============================================================================
+# VERIFICATION WORKER CONFIGURATION
+# =============================================================================
+# Verification Job Processing
+WORKER_POLL_INTERVAL_MS=5000
+WORKER_VERIFICATION_TIMEOUT_MS=300000
+WORKER_MAX_JOBS_PER_CYCLE=10
+WORKER_MAX_RETRIES=3
+WORKER_RETRY_BACKOFF_MS=5000
+
+# Graceful Shutdown
+GRACEFUL_SHUTDOWN_TIMEOUT_MS=30000
+
+# Metrics and Monitoring
+ENABLE_METRICS=true
+ENABLE_PROFILING=false
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+# Log Output
+WORKER_LOG_FILE=/var/log/enclave-worker.log
+LOG_FORMAT=json
+LOG_SENSITIVE_DATA_REDACTION=true
+
+# Log Rotation
+LOG_MAX_SIZE_MB=100
+LOG_MAX_FILES=10
+LOG_COMPRESS=true
+
+# =============================================================================
+# MONITORING & HEALTH CHECKS
+# =============================================================================
+# Health Check Endpoint
+HEALTH_CHECK_PORT=8081
+HEALTH_CHECK_PATH=/health
+HEALTH_CHECK_INTERVAL_MS=30000
+HEALTH_CHECK_TIMEOUT_MS=5000
+
+# Metrics Collection
+METRICS_ENABLED=true
+METRICS_COLLECTION_INTERVAL_MS=60000
+METRICS_EXPORT_INTERVAL_MS=300000
+
+# Alerting Thresholds
+ALERT_MEMORY_USAGE_PERCENT=85
+ALERT_DISK_USAGE_PERCENT=90
+ALERT_ERROR_RATE_PERCENT=5
+
+# =============================================================================
+# AWS SPECIFIC CONFIGURATION
+# =============================================================================
+# AWS Region
+AWS_REGION=us-east-1
+
+# AWS Credentials (if not using IAM roles)
+# Better approach: Use IAM instance roles in production
+# AWS_ACCESS_KEY_ID=
+# AWS_SECRET_ACCESS_KEY=
+
+# AWS Secrets Manager Configuration
+USE_AWS_SECRETS_MANAGER=true
+AWS_SECRETS_MANAGER_SECRET_NAME=stellarproof/enclave/credentials
+
+# =============================================================================
+# DEPLOYMENT CONFIGURATION
+# =============================================================================
+# Enclave Image Configuration
+ENCLAVE_IMAGE_URI=stellarproof/verification-worker:latest
+ENCLAVE_IMAGE_HASH=sha256:placeholder
+
+# Registry Configuration (AWS ECR)
+ECR_REGISTRY=xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com
+ECR_REPOSITORY=stellarproof/verification-worker
+
+# =============================================================================
+# OPTIONAL: KEY ROTATION CONFIGURATION
+# =============================================================================
+# KMS Key Rotation
+KMS_ROTATION_PERIOD_DAYS=0
+KMS_ROTATION_BATCH_SIZE=25
+KMS_ROTATION_CRON_SCHEDULE="0 * * * *"
+
+# Master Key Rotation (set old key here during rotation)
+# MASTER_KEY_PREVIOUS=
+
+# =============================================================================
+# OPTIONAL: FEATURE FLAGS
+# =============================================================================
+FEATURE_FLAG_ATTESTATION_VALIDATION=true
+FEATURE_FLAG_SPV_VERIFICATION=true
+FEATURE_FLAG_CIRCUIT_BREAKER=true
+FEATURE_FLAG_CRASH_RECOVERY=true
+
+# =============================================================================
+# OPTIONAL: DEVELOPMENT/DEBUG
+# =============================================================================
+# These should NEVER be enabled in production
+DEBUG_MODE=false
+VERBOSE_LOGGING=false
+SKIP_ATTESTATION_VALIDATION=false

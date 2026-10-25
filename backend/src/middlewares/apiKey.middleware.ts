@@ -10,12 +10,15 @@ export const verifyApiKey = async (req: Request, _res: Response, next: NextFunct
       throw new HttpError(401, 'Missing x-api-key header');
     }
 
+    const hashedApiKey = userService.hashApiKey(apiKeyHeader.trim());
     const user = await userService.findActiveUserByApiKey(apiKeyHeader.trim());
     if (!user) {
       throw new HttpError(401, 'Invalid API key');
     }
 
     req.user = user;
+    // Attach the hashed API key for usage metering
+    req.apiKeyHash = hashedApiKey;
     next();
   } catch (error) {
     next(error);

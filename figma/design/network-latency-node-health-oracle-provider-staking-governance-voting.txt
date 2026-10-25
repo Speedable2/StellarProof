@@ -1,0 +1,12 @@
+//Design Deliverables
+
+Network Latency & Node Health — Line Charts (#916): Visualize oracle network uptime and response-time trends using line charts.
+
+Network Latency & Node Health — Bar Charts (#917): Present node availability and latency comparisons through bar-chart visualizations.
+
+Oracle Provider Staking Dashboard (#915): Design a financial dashboard for operators to manage XLM collateral and review staking rewards.
+
+Governance Voting UI (#914): Create a proposal voting screen that communicates XLM-weighted voting and supports informed user decisions.
+
+
+https://www.figma.com/design/2kP82C0Z8z0X3CncLQmfhB/Stellar-Project-Fig?node-id=3104-2&t=zzXMmpkwe30CmMGR-0

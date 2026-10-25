@@ -8,6 +8,7 @@ import { startEventIngestionJob } from "./jobs/eventIngestion.job";
 import { startCertificateIndexerJob } from "./jobs/certificateIndexer.job";
 import { startStorageHealthJob } from "./jobs/storageHealth.job";
 import { startKmsRotationJob } from "./jobs/kmsRotation.job";
+import { startWebhookDeliveryJob } from "./jobs/webhookDelivery.job";
 import { statusStreamService } from "./services/statusStream.service";
 
 function hasCloudinaryConfig(): boolean {
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
     : undefined;
 
   const kmsRotationJob = startKmsRotationJob();
+  const webhookDeliveryJob = startWebhookDeliveryJob();
 
   if (hasCloudinaryConfig()) {
     initCloudinary();
@@ -48,6 +50,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     stopEventIngestion?.();
     stopCertificateIndexer?.();
+    webhookDeliveryJob.stop();
     console.log(`[Server] ${signal} received — shutting down gracefully`);
     await statusStreamService.disconnectAll();
     server.close(async () => {

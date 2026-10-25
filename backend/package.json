@@ -14,7 +14,13 @@
     "test:integration": "jest --config jest.integration.config.js --runInBand",
     "seed:kms": "ts-node-dev --transpile-only src/utils/seedKMSData.ts",
     "backfill:spv-links": "ts-node-dev --transpile-only src/utils/backfillSpvCertificateLinks.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:load": "cd load-tests && npm run test:load:all",
+    "test:load:kms": "cd load-tests && npm run test:load:kms",
+    "test:load:kms:dev": "cd load-tests && npm run test:load:kms:dev",
+    "test:load:worker": "cd load-tests && npm run test:load:worker",
+    "test:load:worker:dev": "cd load-tests && npm run test:load:worker:dev",
+    "test:load:all:dev": "cd load-tests && npm run test:load:all:dev"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.3.0",

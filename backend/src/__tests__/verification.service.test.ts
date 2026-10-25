@@ -14,7 +14,8 @@ jest.mock('../services/statusStream.service', () => ({
   statusStreamService: { broadcast: jest.fn().mockResolvedValue(undefined) },
 }));
 jest.mock('../services/webhook.service', () => ({
-  webhookService: { dispatchJobEvent: jest.fn().mockResolvedValue(true) },
+  createWebhookEvent: (type: string, data: unknown) => ({ id: 'evt-test', type, occurredAt: '2026-01-01T00:00:00.000Z', data }),
+  webhookService: { enqueueForStellarPublicKey: jest.fn().mockResolvedValue(0) },
 }));
 
 describe('verificationService.verifyManifestIntegrity', () => {

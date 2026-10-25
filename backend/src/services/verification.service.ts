@@ -27,7 +27,9 @@ import type {
 import { VerificationRequestEventStatus } from "../types/verificationRequestEvent.types";
 import type { IVerificationRequestEvent } from "../types/verificationRequestEvent.types";
 import { statusStreamService } from "./statusStream.service";
-import { webhookService } from "./webhook.service";
+import { createWebhookEvent, webhookService } from "./webhook.service";
+import type { WebhookEvent } from "../types/webhook.types";
+import logger from "../utils/logger";
 
 function assertValidObjectId(id: string): void {
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -90,24 +92,51 @@ function assertJobOwner(jobOrId: IVerificationJob | string, requesterOrPublicKey
   }
 }
 
-function dispatchWebhook(job: IVerificationJob, event: VerificationWebhookEvent): void {
-  if (!job.webhookUrl || !(job.webhookEvents ?? Object.values(VerificationWebhookEvent)).includes(event)) {
-    return;
+async function dispatchWebhook(job: IVerificationJob, event: VerificationWebhookEvent): Promise<void> {
+  const jobId = String(job._id);
+  let payload: WebhookEvent;
+  switch (event) {
+    case VerificationWebhookEvent.COMPLETED:
+      payload = createWebhookEvent(event, {
+        jobId,
+        contentHash: job.contentHash,
+        status: job.status,
+        ...(job.certificateId ? { certificateId: job.certificateId } : {}),
+        ...(job.stellarTransactionHash ? { txHash: job.stellarTransactionHash } : {}),
+      });
+      break;
+    case VerificationWebhookEvent.FAILED:
+      payload = createWebhookEvent(event, {
+        jobId,
+        contentHash: job.contentHash,
+        status: job.status,
+        ...(job.errorMessage ? { errorMessage: job.errorMessage } : {}),
+      });
+      break;
+    case VerificationWebhookEvent.MINTED:
+      if (!job.certificateId) return;
+      payload = createWebhookEvent(event, {
+        jobId,
+        contentHash: job.contentHash,
+        certificateId: job.certificateId,
+        ...(job.stellarTransactionHash ? { txHash: job.stellarTransactionHash } : {}),
+      });
+      break;
+    case VerificationWebhookEvent.JOB_CREATED:
+      payload = createWebhookEvent(event, { jobId, contentHash: job.contentHash, status: job.status });
+      break;
+    case VerificationWebhookEvent.KMS_KEY_ROTATED:
+      return;
   }
-
-  const payload = {
-    event,
-    jobId: String(job._id),
-    contentHash: job.contentHash,
-    status: job.status,
-    timestamp: new Date().toISOString(),
-    ...(job.stellarTransactionHash ? { txHash: job.stellarTransactionHash } : {}),
-    ...(job.certificateId ? { certificateId: job.certificateId } : {}),
-    ...(job.errorMessage ? { errorMessage: job.errorMessage } : {}),
-  };
-  void webhookService.dispatchJobEvent(job.webhookUrl, payload).catch((error: unknown) => {
-    console.error("[Verification] Webhook dispatch failed", error);
-  });
+  try {
+    await webhookService.enqueueForStellarPublicKey(job.ownerPublicKey, payload);
+  } catch (error: unknown) {
+    logger.error("Failed to enqueue verification webhook", {
+      jobId,
+      event,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function createJob(dto: CreateVerificationJobDTO): Promise<IVerificationJob> {
@@ -126,6 +155,8 @@ async function createJob(dto: CreateVerificationJobDTO): Promise<IVerificationJo
     String(job._id),
     VerificationStatus.PENDING
   );
+
+  await dispatchWebhook(job.toObject<IVerificationJob>(), VerificationWebhookEvent.JOB_CREATED);
 
   return job.toObject<IVerificationJob>();
 }
@@ -219,6 +250,7 @@ async function retryJob(id: string, requester: VerificationJobAccessContext): Pr
       throw error;
     }
     await statusStreamService.broadcast(String(newJob._id), VerificationStatus.PENDING);
+    await dispatchWebhook(newJob.toObject<IVerificationJob>(), VerificationWebhookEvent.JOB_CREATED);
     return newJob.toObject<IVerificationJob>();
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
@@ -367,10 +399,10 @@ async function updateJobStatus(
   });
 
   const updatedJob = job.toObject<IVerificationJob>();
-  if (nextStatus === VerificationStatus.FAILED) dispatchWebhook(updatedJob, VerificationWebhookEvent.FAILED);
+  if (nextStatus === VerificationStatus.FAILED) await dispatchWebhook(updatedJob, VerificationWebhookEvent.FAILED);
   if (nextStatus === VerificationStatus.COMPLETED) {
-    dispatchWebhook(updatedJob, VerificationWebhookEvent.COMPLETED);
-    if (updatedJob.certificateId) dispatchWebhook(updatedJob, VerificationWebhookEvent.MINTED);
+    await dispatchWebhook(updatedJob, VerificationWebhookEvent.COMPLETED);
+    if (updatedJob.certificateId) await dispatchWebhook(updatedJob, VerificationWebhookEvent.MINTED);
   }
 
   return updatedJob;
@@ -477,8 +509,8 @@ async function completeFromMintEvent(
       certificateId: event.certificateId,
     });
     const completedJob = job.toObject<IVerificationJob>();
-    dispatchWebhook(completedJob, VerificationWebhookEvent.COMPLETED);
-    dispatchWebhook(completedJob, VerificationWebhookEvent.MINTED);
+    await dispatchWebhook(completedJob, VerificationWebhookEvent.COMPLETED);
+    await dispatchWebhook(completedJob, VerificationWebhookEvent.MINTED);
     return completedJob;
   }
   return job.toObject<IVerificationJob>();
@@ -486,6 +518,7 @@ async function completeFromMintEvent(
 
 export const verificationService = {
   createJob,
+  dispatchJobCreated: (job: IVerificationJob): Promise<void> => dispatchWebhook(job, VerificationWebhookEvent.JOB_CREATED),
   getJob,
   getJobsByOwner,
   listJobs,
@@ -537,7 +570,7 @@ export const verificationService = {
       await statusStreamService.broadcast(String(failedJob._id), VerificationStatus.FAILED, {
         errorMessage: failureReason,
       });
-      dispatchWebhook(failedJob, VerificationWebhookEvent.FAILED);
+      await dispatchWebhook(failedJob, VerificationWebhookEvent.FAILED);
     }
     return failedCount;
   },

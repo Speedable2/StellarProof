@@ -2,8 +2,6 @@ import mongoose from "mongoose";
 import { StatusCodes } from "http-status-codes";
 import { AppError } from "../errors/AppError";
 import logger from "../utils/logger";
-import { toAddressScVal } from "../utils/xdr";
-import type { ContractQueryClient } from "./contracts/ContractReader";
 
 /** SPV access modes that gate decryption of a sealed asset. */
 export type SpvAccessType =
@@ -139,37 +137,9 @@ function isAllowedUser(
  * Dependencies are required lazily so importing this module needs no credentials.
  */
 async function queryNftBalance(contractId: string, holderPublicKey: string): Promise<boolean> {
-  const { env } = require("../config/env") as typeof import("../config/env");
-  const { Keypair, StrKey, scValToNative } = require("@stellar/stellar-sdk") as typeof import("@stellar/stellar-sdk");
-  const { SorobanContractQueryClient } = require("./contracts/ContractReader") as typeof import("./contracts/ContractReader");
-
-  if (!StrKey.isValidContract(contractId)) {
-    throw new AppError(
-      "SPV record has an invalid NFT contract address",
-      StatusCodes.INTERNAL_SERVER_ERROR,
-      "ACCESS_POLICY_INVALID"
-    );
-  }
-  if (!StrKey.isValidEd25519SecretSeed(env.STELLAR_ORACLE_SECRET_KEY)) {
-    throw new AppError(
-      "STELLAR_ORACLE_SECRET_KEY must be a valid Stellar secret seed",
-      StatusCodes.INTERNAL_SERVER_ERROR,
-      "NFT_CHECK_UNAVAILABLE"
-    );
-  }
-
-  const sourceAccount = Keypair.fromSecret(env.STELLAR_ORACLE_SECRET_KEY).publicKey();
-  const client: ContractQueryClient = new SorobanContractQueryClient(sourceAccount);
-  const retval = await client.invoke({
-    contractId,
-    method: env.STELLAR_NFT_BALANCE_FN,
-    args: [toAddressScVal(holderPublicKey, "holderPublicKey")],
-  });
-
-  const balance: unknown = scValToNative(retval);
-  if (typeof balance === "bigint") return balance > BigInt(0);
-  if (typeof balance === "number") return balance > 0;
-  throw new Error(`NFT balance function returned a non-numeric value (${typeof balance})`);
+  const { queryNftOwnership } = require("./contracts/NftContract") as typeof import("./contracts/NftContract");
+  const result = await queryNftOwnership(contractId, holderPublicKey);
+  return result.holdsToken;
 }
 
 export const accessControlService = new AccessControlService();

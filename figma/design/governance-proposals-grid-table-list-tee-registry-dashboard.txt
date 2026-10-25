@@ -1,0 +1,13 @@
+-- Design Breakdown
+
+Governance Proposals — Grid View (#912): Arrange active proposals in structured cards, making proposal details and approval or revocation status easy to scan.
+
+Governance Proposals — Table View (#913): Present proposal records in aligned columns for efficient comparison and review.
+
+Governance Proposals — List View (#911): Provide a streamlined vertical layout for browsing active governance proposals.
+
+TEE Registry Dashboard — Table View (#910): Organize trusted Oracle Workers and their health information in a clear, readable registry.
+
+
+
+https://www.figma.com/design/2kP82C0Z8z0X3CncLQmfhB/Stellar-Project-Fig?node-id=3104-2&t=zzXMmpkwe30CmMGR-0

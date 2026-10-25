@@ -180,6 +180,31 @@ VerificationJobSchema.index(
   }
 );
 
+// Compound index for efficient developer job listing queries
+// Supports filters by owner, status, and date range with sorting
+VerificationJobSchema.index(
+  { ownerPublicKey: 1, status: 1, createdAt: -1 },
+  {
+    name: "idx_developer_jobs_list",
+  }
+);
+
+// Compound index for efficient developer job filtering by owner and status only
+VerificationJobSchema.index(
+  { ownerPublicKey: 1, status: 1 },
+  {
+    name: "idx_developer_jobs_by_status",
+  }
+);
+
+// Compound index for efficient usage summary aggregations
+VerificationJobSchema.index(
+  { ownerPublicKey: 1, createdAt: 1 },
+  {
+    name: "idx_developer_usage_summary",
+  }
+);
+
 export const VerificationJobModel = model<VerificationJobDocument>(
   "VerificationJob",
   VerificationJobSchema

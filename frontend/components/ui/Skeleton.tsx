@@ -121,3 +121,86 @@ export const WizardSkeleton = ({ className }: { className?: string }) => {
     </div>
   );
 };
+
+/**
+ * Dashboard asset-grid skeleton matching cards and media thumbnails.
+ */
+export const DashboardAssetGridSkeleton = ({
+  count = 6,
+  className,
+}: {
+  count?: number;
+  className?: string;
+}) => {
+  return (
+    <div
+      data-testid="dashboard-asset-grid-skeleton"
+      className={cn("grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3", className)}
+    >
+      {Array.from({ length: count }).map((_, index) => (
+        <div
+          key={index}
+          className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-darkblue"
+        >
+          <Skeleton className="aspect-[4/3] w-full rounded-none" />
+          <div className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </div>
+            <Skeleton className="h-5 w-3/4" />
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/**
+ * Dashboard history/table skeleton matching request and manifest rows.
+ */
+export const DashboardHistorySkeleton = ({
+  rows = 5,
+  className,
+}: {
+  rows?: number;
+  className?: string;
+}) => {
+  return (
+    <div
+      data-testid="dashboard-history-skeleton"
+      className={cn(
+        "overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-darkblue",
+        className,
+      )}
+    >
+      <div className="grid grid-cols-1 gap-3 border-b border-gray-200 bg-gray-50 p-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-400 sm:grid-cols-5">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-20" />
+      </div>
+      <div className="divide-y divide-gray-200 dark:divide-white/10">
+        {Array.from({ length: rows }).map((_, index) => (
+          <div
+            key={index}
+            className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-5 sm:items-center"
+          >
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-24" />
+            <div className="flex justify-start sm:justify-end">
+              <Skeleton className="h-7 w-20 rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};

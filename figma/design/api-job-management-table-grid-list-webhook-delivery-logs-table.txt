@@ -1,0 +1,11 @@
+//Figma Design Deliverables
+
+API Job Management — Table View (#897): Present bulk verification jobs in a structured table for status tracking and review.
+API Job Management — Grid View (#896): Arrange job information into scannable cards for quick visual assessment.
+API Job Management — List View (#895): Provide a streamlined layout for reviewing multiple verification requests.
+Webhook Delivery Logs — Table View (#894): Organize webhook delivery records with visible HTTP status codes and success/failure indicators to support debugging.
+
+
+
+https://www.figma.com/design/2kP82C0Z8z0X3CncLQmfhB/Stellar-Project-Fig?node-id=3104-2&t=zzXMmpkwe30CmMGR-0
+

@@ -1,5 +1,6 @@
 "use client";
 
+
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
@@ -11,6 +12,10 @@ import {
   type MockCertificate,
 } from "@/services/web2DashboardService";
 import QuickActions from "./QuickActions";
+import {
+  DashboardAssetGridSkeleton,
+  DashboardHistorySkeleton,
+} from "@/components/ui/Skeleton";
 import { Search, ShieldCheck, FileCode, Award, CheckCircle2, Clock, AlertTriangle, ExternalLink, X, Eye, Receipt } from "lucide-react";
 
 export interface Web2DashboardViewProps {
@@ -24,6 +29,7 @@ function truncateHash(hash: string): string {
   if (!hash || hash.length < 16) return hash || "";
   return `${hash.slice(0, 10)}...${hash.slice(-6)}`;
 }
+
 
 function StatusBadge({ status }: { status: string }) {
   let badgeStyle = "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
@@ -56,42 +62,40 @@ export default function Web2DashboardView({ userEmail = "user@example.com", user
   const [attestations, setAttestations] = useState<MockAttestation[]>([]);
   const [certificates, setCertificates] = useState<MockCertificate[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [pageSize, setPageSize] = useState<number>(10);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [selectedInspectItem, setSelectedInspectItem] = useState<{ title: string; data: Record<string, unknown> } | null>(null);
 
+  const loadData = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const [prodRes, reqRes, mnfRes, attRes, certRes] = await Promise.all([
+        web2DashboardService.getWeb2UserProducts(userEmail),
+        web2DashboardService.getWeb2VerificationRequests(userEmail),
+        web2DashboardService.getWeb2Manifests(userEmail),
+        web2DashboardService.getWeb2Attestations(userEmail),
+        web2DashboardService.getWeb2Certificates(userEmail),
+      ]);
+
+      setProducts(prodRes);
+      setRequests(reqRes);
+      setManifests(mnfRes);
+      setAttestations(attRes);
+      setCertificates(certRes);
+    } catch (err) {
+      console.error("Failed to load web2 dashboard data:", err);
+      setError("We couldn’t load your dashboard data. Please refresh or try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    let isMounted = true;
-    const loadData = async () => {
-      setIsLoading(true);
-      try {
-        const [prodRes, reqRes, mnfRes, attRes, certRes] = await Promise.all([
-          web2DashboardService.getWeb2UserProducts(userEmail),
-          web2DashboardService.getWeb2VerificationRequests(userEmail),
-          web2DashboardService.getWeb2Manifests(userEmail),
-          web2DashboardService.getWeb2Attestations(userEmail),
-          web2DashboardService.getWeb2Certificates(userEmail),
-        ]);
-
-        if (isMounted) {
-          setProducts(prodRes);
-          setRequests(reqRes);
-          setManifests(mnfRes);
-          setAttestations(attRes);
-          setCertificates(certRes);
-        }
-      } catch (err) {
-        console.error("Failed to load web2 dashboard data:", err);
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
-    };
-
-    loadData();
-    return () => {
-      isMounted = false;
-    };
+    void loadData();
   }, [userEmail]);
 
   // Filter logic based on tab & searchQuery
@@ -271,10 +275,25 @@ export default function Web2DashboardView({ userEmail = "user@example.com", user
       </div>
 
       {/* Main Content Areas */}
-      {isLoading ? (
-        <div className="py-16 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      {error ? (
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500"
+            >
+              Retry
+            </button>
+          </div>
         </div>
+      ) : isLoading ? (
+        activeTab === "products" || activeTab === "certificates" ? (
+          <DashboardAssetGridSkeleton count={6} />
+        ) : (
+          <DashboardHistorySkeleton rows={5} />
+        )
       ) : activeTab === "products" ? (
         /* ================= Default View: My Products ================= */
         <section className="space-y-6">
