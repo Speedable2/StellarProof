@@ -14,6 +14,15 @@ let testUser: any;
 let testApiKey: string;
 let hashedApiKey: string;
 
+/** Sign a JWT for a user id with the test secret. */
+function signTestToken(userId: string): string {
+  return jwt.sign(
+    { userId },
+    env.JWT_SECRET,
+    { expiresIn: env.JWT_EXPIRES_IN } as jwt.SignOptions
+  );
+}
+
 describe('API Key Usage Integration Tests', () => {
   beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();
@@ -102,11 +111,7 @@ describe('API Key Usage Integration Tests', () => {
       });
 
       // Create JWT for other user
-      const token = jwt.sign(
-        { userId: otherUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(otherUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)
@@ -119,11 +124,7 @@ describe('API Key Usage Integration Tests', () => {
 
     it('should return 200 with usage data for authenticated owner', async () => {
       // Create JWT for test user
-      const token = jwt.sign(
-        { userId: testUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(testUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)
@@ -141,11 +142,7 @@ describe('API Key Usage Integration Tests', () => {
     });
 
     it('should return 400 for invalid date format', async () => {
-      const token = jwt.sign(
-        { userId: testUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(testUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)
@@ -158,11 +155,7 @@ describe('API Key Usage Integration Tests', () => {
     });
 
     it('should filter by endpoint if provided', async () => {
-      const token = jwt.sign(
-        { userId: testUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(testUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)
@@ -177,11 +170,7 @@ describe('API Key Usage Integration Tests', () => {
     });
 
     it('should respect pagination limits', async () => {
-      const token = jwt.sign(
-        { userId: testUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(testUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)
@@ -194,11 +183,7 @@ describe('API Key Usage Integration Tests', () => {
     });
 
     it('should return 400 for invalid pagination', async () => {
-      const token = jwt.sign(
-        { userId: testUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(testUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)
@@ -211,11 +196,7 @@ describe('API Key Usage Integration Tests', () => {
     });
 
     it('should return 400 for invalid granularity', async () => {
-      const token = jwt.sign(
-        { userId: testUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(testUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)
@@ -228,11 +209,7 @@ describe('API Key Usage Integration Tests', () => {
     });
 
     it('should return usage sorted by total requests descending', async () => {
-      const token = jwt.sign(
-        { userId: testUser._id.toString() },
-        env.JWT_SECRET,
-        { expiresIn: env.JWT_EXPIRES_IN }
-      );
+      const token = signTestToken(testUser._id.toString());
 
       const response = await request(app)
         .get(`/api/v1/developer/api-keys/${hashedApiKey}/usage`)

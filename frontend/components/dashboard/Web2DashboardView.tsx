@@ -95,7 +95,38 @@ export default function Web2DashboardView({ userEmail = "user@example.com", user
   };
 
   useEffect(() => {
-    void loadData();
+    let cancelled = false;
+
+    const fetchData = async () => {
+      try {
+        const [prodRes, reqRes, mnfRes, attRes, certRes] = await Promise.all([
+          web2DashboardService.getWeb2UserProducts(userEmail),
+          web2DashboardService.getWeb2VerificationRequests(userEmail),
+          web2DashboardService.getWeb2Manifests(userEmail),
+          web2DashboardService.getWeb2Attestations(userEmail),
+          web2DashboardService.getWeb2Certificates(userEmail),
+        ]);
+        if (cancelled) return;
+        setProducts(prodRes);
+        setRequests(reqRes);
+        setManifests(mnfRes);
+        setAttestations(attRes);
+        setCertificates(certRes);
+        setError(null);
+      } catch (err) {
+        console.error("Failed to load web2 dashboard data:", err);
+        if (cancelled) return;
+        setError("We couldn’t load your dashboard data. Please refresh or try again.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    void fetchData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [userEmail]);
 
   // Filter logic based on tab & searchQuery

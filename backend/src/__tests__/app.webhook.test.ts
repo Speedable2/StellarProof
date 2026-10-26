@@ -37,7 +37,7 @@ describe('Developer App Webhook Registration', () => {
           description: 'A test application for webhook integration',
         });
 
-        expect(result.success || result.id).toBeDefined();
+        expect(result.id).toBeDefined();
         expect(result.name).toBe('Test App');
         expect(result.isActive).toBe(true);
         console.log('✓ App created successfully:', result);

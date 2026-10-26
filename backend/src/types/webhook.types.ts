@@ -8,14 +8,85 @@
  *
  * Shared across all layers: models, services, controllers, and routes.
  */
+import type { VerificationStatus, VerificationWebhookEvent } from "./verification.types";
 import type { Types } from "mongoose";
 
 // ---------------------------------------------------------------------------
-// Status enum
+// Queue pipeline types (webhook.service / webhookRegistration.service)
+// ---------------------------------------------------------------------------
+
+export type WebhookEventType = VerificationWebhookEvent;
+
+export interface WebhookEventPayloadMap {
+  [VerificationWebhookEvent.JOB_CREATED]: {
+    jobId: string;
+    contentHash: string;
+    status: VerificationStatus;
+  };
+  [VerificationWebhookEvent.COMPLETED]: {
+    jobId: string;
+    contentHash: string;
+    status: VerificationStatus;
+    certificateId?: string;
+    txHash?: string;
+  };
+  [VerificationWebhookEvent.FAILED]: {
+    jobId: string;
+    contentHash: string;
+    status: VerificationStatus;
+    errorMessage?: string;
+  };
+  [VerificationWebhookEvent.MINTED]: {
+    jobId: string;
+    contentHash: string;
+    certificateId: string;
+    txHash?: string;
+  };
+  [VerificationWebhookEvent.KMS_KEY_ROTATED]: {
+    keyVersion: string;
+    previousKeyVersion: string;
+    assetsReEncrypted: number;
+  };
+}
+
+export interface WebhookEvent<T extends WebhookEventType = WebhookEventType> {
+  id: string;
+  type: T;
+  occurredAt: string;
+  data: WebhookEventPayloadMap[T];
+}
+
+export interface WebhookSubscription {
+  events: WebhookEventType[];
+}
+
+/** Lifecycle of a queued webhook delivery (queue pipeline). */
+export type WebhookQueueDeliveryStatus =
+  | "pending"
+  | "processing"
+  | "delivered"
+  | "failed"
+  | "dead_letter";
+
+export interface WebhookDeliverySummary {
+  id: string;
+  eventType: WebhookEventType;
+  status: WebhookQueueDeliveryStatus;
+  attempts: number;
+  responseCode: number | null;
+  latencyMs: number | null;
+  payloadPreview: string;
+  createdAt: Date;
+  deliveredAt?: Date;
+  nextAttemptAt?: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Replay pipeline types (webhookDelivery.service / webhookSecret.service)
 // ---------------------------------------------------------------------------
 
 /**
- * Lifecycle of a single webhook delivery.
+ * Lifecycle of a replayable webhook delivery.
  *
  * State flow:
  *   pending   -> delivered | failed   (initial dispatch)
@@ -31,11 +102,7 @@ export enum WebhookDeliveryStatus {
   REPLAYING = "replaying",
 }
 
-// ---------------------------------------------------------------------------
-// Interfaces
-// ---------------------------------------------------------------------------
-
-/** Shape of a WebhookDelivery document as stored in MongoDB. */
+/** Shape of a replayable WebhookDelivery document as stored in MongoDB. */
 export interface IWebhookDelivery {
   _id?: string | Types.ObjectId;
 
@@ -82,10 +149,6 @@ export interface IWebhookDelivery {
   createdAt?: Date;
   updatedAt?: Date;
 }
-
-// ---------------------------------------------------------------------------
-// DTOs
-// ---------------------------------------------------------------------------
 
 /** Input for persisting and dispatching a new webhook delivery. */
 export interface CreateWebhookDeliveryDTO {

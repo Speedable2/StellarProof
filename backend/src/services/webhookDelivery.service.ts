@@ -16,6 +16,9 @@
  */
 import { Types } from "mongoose";
 import { StatusCodes } from "http-status-codes";
+import QueueWebhookDelivery from "../models/WebhookDelivery.model";
+import type { IQueueWebhookDelivery } from "../models/WebhookDelivery.model";
+import WebhookRegistration from "../models/WebhookRegistration.model";
 import { WebhookDeliveryModel } from "../models/WebhookDelivery.model";
 import { WebhookDeliveryStatus } from "../types/webhook.types";
 import type {
@@ -24,6 +27,7 @@ import type {
   ReplayWebhookDeliveryParams,
   ReplayWebhookDeliveryRequester,
   ReplayWebhookDeliveryResult,
+  WebhookDeliverySummary,
 } from "../types/webhook.types";
 import { AppError } from "../errors/AppError";
 import { computeHMAC } from "../utils/signature";
@@ -47,8 +51,78 @@ export interface WebhookDispatchOutcome {
   error?: string;
 }
 
+/** Paginated page of queued delivery summaries for a webhook registration. */
+export interface WebhookDeliveryPage {
+  deliveries: WebhookDeliverySummary[];
+  total: number;
+  limit: number;
+  skip: number;
+}
+
 export class WebhookDeliveryService {
   constructor(private readonly timeoutMs: number = DISPATCH_TIMEOUT_MS) {}
+
+  // -------------------------------------------------------------------------
+  // Queue API – list deliveries for a webhook registration (used by the
+  // delivery-logs endpoint documented in WEBHOOKS.md and exercised by
+  // services/__tests__/webhook.service.test.ts).
+  // -------------------------------------------------------------------------
+
+  async listForRegistration(
+    ownerId: string,
+    registrationId: string,
+    limit: number,
+    skip: number
+  ): Promise<WebhookDeliveryPage> {
+    if (
+      !Types.ObjectId.isValid(ownerId) ||
+      !Types.ObjectId.isValid(registrationId)
+    ) {
+      throw new AppError(
+        "Invalid webhook registration ID",
+        StatusCodes.BAD_REQUEST,
+        "INVALID_ID"
+      );
+    }
+    const registration = await WebhookRegistration.exists({ _id: registrationId, ownerId });
+    if (!registration) {
+      throw new AppError(
+        "Webhook registration not found",
+        StatusCodes.NOT_FOUND,
+        "WEBHOOK_NOT_FOUND"
+      );
+    }
+
+    const filter = { registrationId, ownerId };
+    const [rows, total] = await Promise.all([
+      QueueWebhookDelivery.find(filter)
+        .select(
+          "eventType status attempts responseCode latencyMs payloadPreview createdAt deliveredAt nextAttemptAt"
+        )
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean<Array<Pick<IQueueWebhookDelivery, "_id" | "eventType" | "status" | "attempts" | "responseCode" | "latencyMs" | "payloadPreview" | "createdAt" | "deliveredAt" | "nextAttemptAt">>>(),
+      QueueWebhookDelivery.countDocuments(filter),
+    ]);
+    return {
+      deliveries: rows.map((delivery) => ({
+        id: String(delivery._id),
+        eventType: delivery.eventType,
+        status: delivery.status,
+        attempts: delivery.attempts,
+        responseCode: delivery.responseCode ?? null,
+        latencyMs: delivery.latencyMs ?? null,
+        payloadPreview: delivery.payloadPreview,
+        createdAt: delivery.createdAt,
+        ...(delivery.deliveredAt ? { deliveredAt: delivery.deliveredAt } : {}),
+        ...(delivery.status === "pending" ? { nextAttemptAt: delivery.nextAttemptAt } : {}),
+      })),
+      total,
+      limit,
+      skip,
+    };
+  }
 
   // -------------------------------------------------------------------------
   // Producer API – persist a delivery and run its initial dispatch

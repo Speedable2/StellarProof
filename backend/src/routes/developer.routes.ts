@@ -1,27 +1,57 @@
 /**
  * Developer Routes.
  *
- * Endpoints:
- *   POST /api/v1/developer/keys
- *     Generates a new API key for the authenticated/submitted user.
- *
- *   POST /api/v1/developer/webhooks/:id/deliveries/:deliveryId/replay
- *     Re-dispatches a failed webhook delivery using the payload and HMAC
- *     signature stored at dispatch time. Only `failed` deliveries are
- *     replayable (409 otherwise). Requires an x-api-key header; only the
- *     delivery's owner (or an admin) may replay it.
- *
- * All Zod schemas are co-located with the routes that use them and are
- * exported so the validation contract can be unit-tested directly.
+ * Endpoints mounted under `/api/v1/developer`:
+ *   POST   /keys                                    – generate a new API key
+ *   GET    /api-keys/:keyId/usage                   – API key usage metrics
+ *   GET    /jobs                                    – list jobs (job dashboard)
+ *   GET    /jobs/:id                                – single job details
+ *   GET    /usage/summary                           – developer usage summary
+ *   POST   /webhooks                                – register a webhook
+ *   GET    /webhooks                                – list registered webhooks
+ *   PATCH  /webhooks/:id                            – update a webhook
+ *   DELETE /webhooks/:id                            – delete a webhook
+ *   POST   /kms/backups                             – create a KMS backup
+ *   GET    /kms/backups                             – list KMS backups
+ *   POST   /kms/backups/:id/restore                 – restore a KMS backup
+ *   POST   /apps                                    – create a developer app
+ *   GET    /apps                                    – list developer apps
+ *   GET    /apps/:appId                             – app details
+ *   POST   /apps/:appId/webhooks                    – register app webhook
+ *   POST   /webhooks/:id/deliveries/:deliveryId/replay – replay failed delivery
+ *   POST   /webhooks/:id/rotate-secret              – rotate webhook HMAC secret
  */
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { StatusCodes } from 'http-status-codes';
-import { generateApiKey, replayWebhookDelivery, rotateWebhookSecret } from '../controllers/developer.controller';
+import {
+  generateApiKey,
+  developerController,
+  getApiKeyUsage,
+  replayWebhookDelivery,
+  rotateWebhookSecret,
+  createDeveloperApp,
+  listDeveloperApps,
+  getAppDetailsController,
+  registerAppWebhook,
+  createWebhookRegistration,
+  listWebhookRegistrations,
+  listWebhookDeliveries,
+  updateWebhookRegistration,
+  deleteWebhookRegistration,
+} from '../controllers/developer.controller';
+import { createKmsBackup, listKmsBackups, restoreKmsBackup } from '../controllers/kmsBackup.controller';
+import { protect } from '../middlewares/auth.middleware';
+import { verifyJWT } from '../middlewares/jwt.middleware';
 import { verifyApiKey } from '../middlewares/apiKey.middleware';
+import { zodBody } from '../middlewares/zodValidate';
+import { zodParams } from '../middlewares/zodValidateParams';
+import { createAppSchema, appIdSchema, registerWebhookSchema } from '../middlewares/app.validation';
+import { VerificationWebhookEvent } from '../types/verification.types';
 
 const router = Router();
+
 const webhookEvents = Object.values(VerificationWebhookEvent) as [
   VerificationWebhookEvent,
   ...VerificationWebhookEvent[],
@@ -42,6 +72,98 @@ const deliveryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   skip: z.coerce.number().int().min(0).default(0),
 });
+
+/**
+ * Validation schema for list jobs query parameters.
+ */
+const listJobsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(20),
+  status: z.enum(['pending', 'processing', 'tee_verifying', 'minting', 'completed', 'failed']).optional(),
+  appId: z.string().optional(),
+  jobType: z.string().optional(),
+  createdFrom: z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid date format').optional(),
+  createdTo: z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid date format').optional(),
+  sortBy: z.enum(['createdAt', 'status', 'updatedAt']).optional().default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+});
+
+/**
+ * Validation schema for usage summary query parameters.
+ */
+const usageSummaryQuerySchema = z.object({
+  from: z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid date format').optional(),
+  to: z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid date format').optional(),
+});
+
+/**
+ * Validate list jobs query parameters.
+ */
+function validateListJobsQuery(req: Request, res: Response, next: NextFunction): void {
+  const result = listJobsQuerySchema.safeParse(req.query);
+  if (!result.success) {
+    res.status(StatusCodes.BAD_REQUEST).json({
+      success: false,
+      error: 'Invalid query parameters',
+      details: result.error.flatten().fieldErrors,
+    });
+    return;
+  }
+  Object.assign(req.query, result.data);
+  next();
+}
+
+/**
+ * Validate usage summary query parameters.
+ */
+function validateUsageSummaryQuery(req: Request, res: Response, next: NextFunction): void {
+  const result = usageSummaryQuerySchema.safeParse(req.query);
+  if (!result.success) {
+    res.status(StatusCodes.BAD_REQUEST).json({
+      success: false,
+      error: 'Invalid query parameters',
+      details: result.error.flatten().fieldErrors,
+    });
+    return;
+  }
+  Object.assign(req.query, result.data);
+  next();
+}
+
+/**
+ * Validate job ID path parameter.
+ */
+function validateJobIdParam(req: Request, res: Response, next: NextFunction): void {
+  const result = z.object({
+    id: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid job ID format'),
+  }).safeParse({ id: req.params.id });
+  if (!result.success) {
+    res.status(StatusCodes.BAD_REQUEST).json({
+      success: false,
+      error: 'Invalid job ID format',
+      details: result.error.flatten().fieldErrors,
+    });
+    return;
+  }
+  next();
+}
+
+/**
+ * Validate delivery pagination query parameters.
+ */
+function validateDeliveryQuery(req: Request, res: Response, next: NextFunction): void {
+  const parsed = deliveryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(StatusCodes.BAD_REQUEST).json({
+      success: false,
+      error: 'Invalid pagination parameters',
+      details: parsed.error.flatten().fieldErrors,
+    });
+    return;
+  }
+  res.locals.deliveryPagination = parsed.data;
+  next();
+}
 
 /**
  * @swagger
@@ -65,6 +187,13 @@ const deliveryQuerySchema = z.object({
 router.post('/keys', generateApiKey);
 router.post('/webhooks', protect, createWebhookRegistration);
 router.get('/webhooks', protect, listWebhookRegistrations);
+router.get(
+  '/webhooks/:id/deliveries',
+  protect,
+  zodParams(idParamsSchema),
+  validateDeliveryQuery,
+  listWebhookDeliveries
+);
 router.patch('/webhooks/:id', protect, updateWebhookRegistration);
 router.delete('/webhooks/:id', protect, deleteWebhookRegistration);
 router.post('/kms/backups', protect, createKmsBackup);
@@ -87,10 +216,10 @@ router.post(
 /**
  * GET /api/v1/developer/api-keys/:keyId/usage
  * Retrieve aggregated API usage metrics for a specific API key.
- * 
+ *
  * Authentication: Required (JWT or API Key)
  * Authorization: Caller must own the API key
- * 
+ *
  * Query parameters:
  *   - from: ISO date string (defaults to 7 days ago)
  *   - to: ISO date string (defaults to now)
@@ -98,25 +227,6 @@ router.post(
  *   - granularity: 'hour' or 'day' (defaults to 'hour')
  *   - limit: max results (defaults to 1000, max 10000)
  *   - skip: pagination offset (defaults to 0)
- * 
- * Response:
- *   {
- *     "success": true,
- *     "data": {
- *       "apiKeyId": "sha256hash...",
- *       "period": { "from": "2024-01-15T00:00:00Z", "to": "2024-01-22T00:00:00Z" },
- *       "totalRequests": 1234,
- *       "byEndpoint": [
- *         { "endpoint": "/api/v1/certificates", "method": "POST", "totalRequests": 500, "statusCodeBreakdown": { "201": 500 } },
- *         ...
- *       ],
- *       "byStatusCode": { "201": 500, "400": 10, "500": 5 },
- *       "hourlyBreakdown": [
- *         { "hour": "2024-01-15T00:00:00Z", "requests": 45, "statusCodeBreakdown": { "201": 45 } },
- *         ...
- *       ]
- *     }
- *   }
  */
 router.get('/api-keys/:keyId/usage', verifyJWT, getApiKeyUsage);
 

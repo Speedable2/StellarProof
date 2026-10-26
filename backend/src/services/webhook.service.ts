@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import User from "../models/User.model";
-import WebhookDelivery, { type IWebhookDelivery } from "../models/WebhookDelivery.model";
+import WebhookDelivery, { type IQueueWebhookDelivery } from "../models/WebhookDelivery.model";
 import WebhookRegistration from "../models/WebhookRegistration.model";
 import type { WebhookEvent, WebhookEventPayloadMap, WebhookEventType } from "../types/webhook.types";
 import { decryptWebhookSecret } from "../utils/webhookSecrets";
@@ -103,7 +103,7 @@ export class WebhookService {
     return processed;
   }
 
-  private claimDelivery(now: Date): Promise<IWebhookDelivery | null> {
+  private claimDelivery(now: Date): Promise<IQueueWebhookDelivery | null> {
     return WebhookDelivery.findOneAndUpdate(
       {
         $expr: { $lt: ["$attempts", "$maxAttempts"] },
@@ -123,7 +123,7 @@ export class WebhookService {
     ).exec();
   }
 
-  private async deliver(delivery: IWebhookDelivery, now: Date): Promise<void> {
+  private async deliver(delivery: IQueueWebhookDelivery, now: Date): Promise<void> {
     const registration = await WebhookRegistration.findOne({
       _id: delivery.registrationId,
       ownerId: delivery.ownerId,
@@ -203,7 +203,7 @@ export class WebhookService {
   }
 
   private async retryOrDeadLetter(
-    delivery: IWebhookDelivery,
+    delivery: IQueueWebhookDelivery,
     now: Date,
     error: string,
     responseCode?: number,
@@ -228,10 +228,10 @@ export class WebhookService {
   }
 
   private async finish(
-    delivery: IWebhookDelivery,
+    delivery: IQueueWebhookDelivery,
     update: Partial<
       Pick<
-        IWebhookDelivery,
+        IQueueWebhookDelivery,
         "status" | "lastError" | "responseCode" | "latencyMs" | "deliveredAt" | "nextAttemptAt"
       >
     >

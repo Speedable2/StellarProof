@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Centralised environment configuration.
  * All process.env reads happen here. Downstream modules import from `env`
  * and never access process.env directly.
@@ -277,3 +277,4 @@ export const env = {
 
   /** Default query range when no explicit dates provided (default: 7 days) */
   API_USAGE_DEFAULT_RANGE_DAYS: optionalPositiveIntEnv("API_USAGE_DEFAULT_RANGE_DAYS", 7),
+};

@@ -1,26 +1,33 @@
 /**
  * Mongoose model for WebhookDelivery documents.
  *
- * Schema design decisions:
- * - `payload` and `signature` are persisted verbatim so a failed delivery can
- *   be replayed byte-for-byte, exactly as the endpoint first received it.
- * - `webhookId` is indexed (not unique): a webhook endpoint accumulates many
- *   deliveries over time.
- * - `owner` is indexed: efficient authorization scoping per developer.
- * - `status` is indexed: efficient filtering for failed deliveries pending
- *   replay.
- * - Timestamps are enabled via Mongoose options (adds `createdAt` / `updatedAt`);
- *   `updatedAt` also backs the stale-replay reclaim window in the service layer.
+ * The model serves two reconciled pipelines:
+ *
+ * 1. Queue pipeline (default export) – used by `webhook.service.ts`,
+ *    `webhookDelivery.job.ts` and `verification.service.ts`. Each delivery
+ *    references a `WebhookRegistration` plus `ownerId`, carries a single
+ *    `WebhookEvent` payload, and flows through
+ *    pending -> processing -> delivered | failed -> dead_letter with
+ *    exponential backoff.
+ *
+ * 2. Replay pipeline (named export `WebhookDeliveryModel`) – used by
+ *    `webhookDelivery.service.ts` and `webhookSecret.service.ts`. Each
+ *    delivery stores the exact serialized payload and HMAC signature so a
+ *    failed delivery can be replayed byte-for-byte (`failed` -> `replaying`
+ *    -> delivered | failed).
  */
-import { Schema, model, Document } from "mongoose";
+import mongoose, { Schema, model, Document } from "mongoose";
+import { VerificationWebhookEvent } from "../types/verification.types";
 import { WebhookDeliveryStatus } from "../types/webhook.types";
+import type { WebhookQueueDeliveryStatus, WebhookEvent, WebhookEventType } from "../types/webhook.types";
 import type { IWebhookDelivery } from "../types/webhook.types";
 
 export type WebhookDeliveryDocument = IWebhookDelivery & Document;
 
-const ALL_STATUSES = Object.values(WebhookDeliveryStatus);
+// Replay pipeline schema: byte-exact payload + signature for verbatim replays.
+const ALL_REPLAY_STATUSES = Object.values(WebhookDeliveryStatus);
 
-const WebhookDeliverySchema = new Schema<WebhookDeliveryDocument>(
+const ReplayWebhookDeliverySchema = new Schema<WebhookDeliveryDocument>(
   {
     webhookId: {
       type: String,
@@ -68,8 +75,8 @@ const WebhookDeliverySchema = new Schema<WebhookDeliveryDocument>(
       type: String,
       required: [true, "status is required"],
       enum: {
-        values: ALL_STATUSES,
-        message: `status must be one of: ${ALL_STATUSES.join(", ")}`,
+        values: ALL_REPLAY_STATUSES,
+        message: `status must be one of: ${ALL_REPLAY_STATUSES.join(", ")}`,
       },
       default: WebhookDeliveryStatus.PENDING,
       index: true,
@@ -106,10 +113,76 @@ const WebhookDeliverySchema = new Schema<WebhookDeliveryDocument>(
 
 // Composite index: look up a specific delivery within a developer's webhook
 // channel, optionally filtered by lifecycle state.
-WebhookDeliverySchema.index({ webhookId: 1, _id: 1 });
-WebhookDeliverySchema.index({ webhookId: 1, status: 1, updatedAt: -1 });
+ReplayWebhookDeliverySchema.index({ webhookId: 1, _id: 1 });
+ReplayWebhookDeliverySchema.index({ webhookId: 1, status: 1, updatedAt: -1 });
 
 export const WebhookDeliveryModel = model<WebhookDeliveryDocument>(
   "WebhookDelivery",
-  WebhookDeliverySchema
+  ReplayWebhookDeliverySchema
 );
+
+// ---------------------------------------------------------------------------
+// Queue pipeline schema (default export): jobs -> registrations -> deliveries
+// ---------------------------------------------------------------------------
+
+export interface IQueueWebhookDelivery extends Document {
+  registrationId: mongoose.Types.ObjectId;
+  ownerId: mongoose.Types.ObjectId;
+  eventId: string;
+  eventType: WebhookEventType;
+  payload: WebhookEvent;
+  payloadPreview: string;
+  status: WebhookQueueDeliveryStatus;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: Date;
+  lockExpiresAt?: Date;
+  responseCode?: number;
+  latencyMs?: number;
+  lastError?: string;
+  deliveredAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const QueueWebhookDeliverySchema = new Schema<IQueueWebhookDelivery>(
+  {
+    registrationId: {
+      type: Schema.Types.ObjectId,
+      ref: "WebhookRegistration",
+      required: true,
+      index: true,
+    },
+    ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    eventId: { type: String, required: true },
+    eventType: {
+      type: String,
+      required: true,
+      enum: Object.values(VerificationWebhookEvent),
+    },
+    payload: { type: Schema.Types.Mixed, required: true },
+    payloadPreview: { type: String, required: true, maxlength: 512 },
+    status: {
+      type: String,
+      required: true,
+      enum: ["pending", "processing", "delivered", "failed", "dead_letter"],
+      default: "pending",
+      index: true,
+    },
+    attempts: { type: Number, required: true, default: 0, min: 0 },
+    maxAttempts: { type: Number, required: true, default: 5, min: 1 },
+    nextAttemptAt: { type: Date, required: true, default: Date.now, index: true },
+    lockExpiresAt: { type: Date },
+    responseCode: { type: Number, min: 100, max: 599 },
+    latencyMs: { type: Number, min: 0 },
+    lastError: { type: String, maxlength: 1000 },
+    deliveredAt: { type: Date },
+  },
+  { timestamps: true }
+);
+
+QueueWebhookDeliverySchema.index({ registrationId: 1, eventId: 1 }, { unique: true });
+QueueWebhookDeliverySchema.index({ status: 1, nextAttemptAt: 1, createdAt: 1 });
+
+export default (mongoose.models.WebhookDelivery as mongoose.Model<IQueueWebhookDelivery> | undefined) ??
+  mongoose.model<IQueueWebhookDelivery>("WebhookDelivery", QueueWebhookDeliverySchema);

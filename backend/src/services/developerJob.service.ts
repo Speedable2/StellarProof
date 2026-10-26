@@ -116,7 +116,7 @@ class DeveloperJobService {
       ? query.sortBy
       : DEFAULT_SORT_FIELD;
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
-    const sort = { [sortField]: sortOrder };
+    const sort: Record<string, 1 | -1> = { [sortField]: sortOrder };
 
     // Execute query
     const [jobs, total] = await Promise.all([
@@ -312,7 +312,7 @@ class DeveloperJobService {
         },
       },
       {
-        $sort: { jobCount: -1 },
+        $sort: { jobCount: -1 as const },
       },
       {
         $limit: 100, // reasonable limit for per-app breakdown

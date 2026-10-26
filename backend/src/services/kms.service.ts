@@ -9,8 +9,8 @@ import { AppError } from '../errors/AppError';
 import { ipfsService } from './ipfs.service';
 import { kmsAuditService } from './kmsAudit.service';
 import { v2 as cloudinary, UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
-import { StatusCodes } from 'http-status-codes';
-import { AppError } from '../errors/AppError';
+import { createWebhookEvent, webhookService } from './webhook.service';
+import { VerificationWebhookEvent } from '../types/verification.types';
 import logger from '../utils/logger';
 
 function unexpiredFilter(now: Date = new Date()) {
@@ -23,16 +23,6 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // 96-bit nonce is standard for GCM buffers
 const AUTH_TAG_LENGTH = 16; // 128-bit auth tag
 const DATA_KEY_LENGTH = 32; // AES-256 data key
-
-function unexpiredFilter(now: Date): Record<string, unknown> {
-  return {
-    $or: [
-      { expiresAt: { $exists: false } },
-      { expiresAt: null },
-      { expiresAt: { $gt: now } },
-    ],
-  };
-}
 
 export interface RotateKeyResult {
   oldKeyVersion: string;
@@ -122,11 +112,6 @@ function resolveMasterKeys(): MasterKeys {
     current: derive(env.MASTER_KEY),
     previous: env.MASTER_KEY_PREVIOUS ? derive(env.MASTER_KEY_PREVIOUS) : undefined,
   };
-}
-
-/** Filter matching keys that have no expiry or whose expiry is still in the future. */
-function unexpiredFilter(now: Date) {
-  return { $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] };
 }
 
 export class KmsService {
@@ -425,41 +410,6 @@ export class KmsService {
     } finally {
       session.endSession();
     }
-  }
-
-  /**
-   * Deactivates keys whose expiry has passed. Returns the number of keys deactivated.
-   */
-  async deactivateExpiredKeys(now: Date = new Date()): Promise<number> {
-    const result = await KMSKey.updateMany(
-      { isActive: true, expiresAt: { $lte: now } },
-      { $set: { isActive: false } }
-    );
-    return result.modifiedCount;
-  }
-
-  /**
-   * Returns one page of active, unexpired keys created before `cutoff`, in _id
-   * order and starting after `afterId`. Pagination by _id keeps the scheduled
-   * sweep stable while the keys it rotates are being replaced.
-   */
-  async findKeysDueForRotation(params: {
-    cutoff: Date;
-    limit: number;
-    afterId?: mongoose.Types.ObjectId;
-    now?: Date;
-  }): Promise<IKMSKey[]> {
-    const { cutoff, limit, afterId, now = new Date() } = params;
-    const filter: Record<string, unknown> = {
-      isActive: true,
-      createdAt: { $lte: cutoff },
-      ...unexpiredFilter(now),
-    };
-    if (afterId) {
-      filter._id = { $gt: afterId };
-    }
-
-    return await KMSKey.find(filter).sort({ _id: 1 }).limit(limit);
   }
 
   /**
